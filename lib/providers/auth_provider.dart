@@ -1,0 +1,471 @@
+// lib/core/providers/auth_provider.dart
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
+
+import '../objectbox_entities_complete.dart';
+import '../services/services.dart';
+
+enum AuthStatus {
+  initial,
+  authenticated,
+  unauthenticated,
+  emailVerificationPending,
+  profileIncomplete,
+  loading,
+  error,
+  accountDeleted,
+}
+
+class AuthProvider extends ChangeNotifier {
+  final SupabaseClient _supabase;
+  final ObjectBoxService _objectBox;
+  final NetworkService _networkService;
+
+  AuthStatus _status = AuthStatus.initial;
+  UserEntity? _currentUser;
+  String? _errorMessage;
+  Timer? _sessionTimer;
+  Timer? _heartbeatTimer;
+  StreamSubscription? _authSubscription;
+
+  // Session management (comme GAFAM: 30 jours avec refresh automatique)
+  static const Duration _sessionDuration = Duration(days: 30);
+  static const Duration _refreshBuffer = Duration(hours: 1);
+  static const Duration _heartbeatInterval = Duration(minutes: 5);
+
+  AuthProvider(this._supabase, this._objectBox, this._networkService) {
+    _initAuth();
+  }
+
+  AuthStatus get status => _status;
+  UserEntity? get currentUser => _currentUser;
+  String? get errorMessage => _errorMessage;
+  bool get isAuthenticated => _status == AuthStatus.authenticated;
+  bool get canAccessApp => _currentUser?.profileCompleted ?? false;
+
+  Future<void> _initAuth() async {
+    _status = AuthStatus.loading;
+    notifyListeners();
+
+    try {
+      // Vérifier session locale
+      final prefs = await SharedPreferences.getInstance();
+      final hasSession = prefs.getBool('has_active_session') ?? false;
+
+      if (hasSession) {
+        final session = _supabase.auth.currentSession;
+        if (session != null) {
+          await _loadUserFromLocal(session.user.id);
+          await _validateAndRefreshSession();
+          _startSessionManagement();
+        } else {
+          await _clearLocalSession();
+          _status = AuthStatus.unauthenticated;
+        }
+      } else {
+        _status = AuthStatus.unauthenticated;
+      }
+    } catch (e) {
+      _errorMessage = 'Erreur d\'initialisation: $e';
+      _status = AuthStatus.error;
+    }
+
+    notifyListeners();
+    _listenToAuthChanges();
+  }
+
+  void _listenToAuthChanges() {
+    _authSubscription = _supabase.auth.onAuthStateChange.listen((data) {
+      final event = data.event;
+      final session = data.session;
+
+      if (event == AuthChangeEvent.signedIn && session != null) {
+        _handleSignIn(session);
+      } else if (event == AuthChangeEvent.signedOut) {
+        _handleSignOut();
+      } else if (event == AuthChangeEvent.tokenRefreshed && session != null) {
+        _handleTokenRefresh(session);
+      }
+    });
+  }
+
+  Future<void> _handleSignIn(Session session) async {
+    await _loadUserFromSupabase(session.user.id);
+    _startSessionManagement();
+  }
+
+  void _handleSignOut() async {
+    await _clearLocalSession();
+    _stopSessionManagement();
+    _status = AuthStatus.unauthenticated;
+    notifyListeners();
+  }
+
+  Future<void> _handleTokenRefresh(Session session) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('access_token', session.accessToken);
+    await prefs.setInt(
+      'token_expires_at',
+      session.expiresAt ??
+          DateTime.now().add(_sessionDuration).millisecondsSinceEpoch ~/ 1000,
+    );
+  }
+
+  // SIGNUP - avec gestion email existant → login automatique
+  Future<bool> signUp({
+    required String email,
+    required String password,
+    String? fullName,
+  }) async {
+    _status = AuthStatus.loading;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      if (!_networkService.isConnected) {
+        throw Exception('Aucune connexion Internet');
+      }
+
+      // Vérifier si email existe déjà
+      final existingUser = await _checkEmailExists(email);
+
+      if (existingUser) {
+        // Email existe → convertir en login
+        return await signIn(email: email, password: password);
+      }
+
+      // Nouveau compte
+      final response = await _supabase.auth.signUp(
+        email: email,
+        password: password,
+        data: {'full_name': fullName},
+      );
+
+      if (response.user != null) {
+        if (response.user!.emailConfirmedAt == null) {
+          _status = AuthStatus.emailVerificationPending;
+          await _saveUnverifiedUser(response.user!.id, email);
+          _startGracePeriodTimer(response.user!.id);
+        } else {
+          await _createUserProfile(response.user!.id, email, fullName);
+          _status = AuthStatus.profileIncomplete;
+        }
+        notifyListeners();
+        return true;
+      }
+
+      throw Exception('Échec de création de compte');
+    } on AuthException catch (e) {
+      _errorMessage = _handleAuthError(e);
+      _status = AuthStatus.error;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _errorMessage = 'Erreur: $e';
+      _status = AuthStatus.error;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // LOGIN
+  Future<bool> signIn({required String email, required String password}) async {
+    _status = AuthStatus.loading;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      if (!_networkService.isConnected) {
+        // Mode offline - vérifier cache local
+        final cachedUser = await _objectBox.getUserByEmail(email);
+        if (cachedUser != null) {
+          _currentUser = cachedUser;
+          _status = AuthStatus.authenticated;
+          notifyListeners();
+          return true;
+        }
+        throw Exception('Aucune connexion Internet');
+      }
+
+      final response = await _supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+
+      if (response.user != null) {
+        await _loadUserFromSupabase(response.user!.id);
+        _startSessionManagement();
+        return true;
+      }
+
+      throw Exception('Échec de connexion');
+    } on AuthException catch (e) {
+      _errorMessage = _handleAuthError(e);
+      _status = AuthStatus.error;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _errorMessage = 'Erreur: $e';
+      _status = AuthStatus.error;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // RESET PASSWORD
+  Future<bool> resetPassword(String email) async {
+    try {
+      if (!_networkService.isConnected) {
+        throw Exception('Aucune connexion Internet');
+      }
+
+      await _supabase.auth.resetPasswordForEmail(email);
+      return true;
+    } catch (e) {
+      _errorMessage = 'Erreur: $e';
+      return false;
+    }
+  }
+
+  // LOGOUT
+  Future<void> signOut() async {
+    await _supabase.auth.signOut();
+    await _clearLocalSession();
+    _stopSessionManagement();
+    _status = AuthStatus.unauthenticated;
+    _currentUser = null;
+    notifyListeners();
+  }
+
+  // DELETE ACCOUNT
+  Future<bool> deleteAccount() async {
+    if (_currentUser == null) return false;
+
+    try {
+      final userId = _currentUser!.userId;
+
+      // Supprimer de Supabase
+      await _supabase.from('profiles').delete().eq('id', userId);
+      await _supabase.auth.admin.deleteUser(userId);
+
+      // Supprimer local
+      await _objectBox.deleteUser(userId);
+      await _clearLocalSession();
+
+      _status = AuthStatus.accountDeleted;
+      _currentUser = null;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = 'Erreur suppression: $e';
+      return false;
+    }
+  }
+
+  // Session Management (comme GAFAM)
+  void _startSessionManagement() {
+    _stopSessionManagement();
+
+    // Refresh automatique avant expiration
+    _sessionTimer = Timer.periodic(_refreshBuffer, (_) async {
+      await _validateAndRefreshSession();
+    });
+
+    // Heartbeat pour activité
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) async {
+      await _updateLastActive();
+    });
+  }
+
+  void _stopSessionManagement() {
+    _sessionTimer?.cancel();
+    _heartbeatTimer?.cancel();
+    _sessionTimer = null;
+    _heartbeatTimer = null;
+  }
+
+  Future<void> _validateAndRefreshSession() async {
+    try {
+      final session = _supabase.auth.currentSession;
+      if (session == null) {
+        await signOut();
+        return;
+      }
+
+      final expiresAt = DateTime.fromMillisecondsSinceEpoch(
+        (session.expiresAt ?? 0) * 1000,
+      );
+
+      if (DateTime.now().isAfter(expiresAt.subtract(_refreshBuffer))) {
+        await _supabase.auth.refreshSession();
+      }
+    } catch (e) {
+      debugPrint('Session refresh error: $e');
+    }
+  }
+
+  Future<void> _updateLastActive() async {
+    if (_currentUser == null || !_networkService.isConnected) return;
+
+    try {
+      await _supabase
+          .from('profiles')
+          .update({'last_active_at': DateTime.now().toIso8601String()})
+          .eq('id', _currentUser!.userId);
+    } catch (e) {
+      debugPrint('Last active update error: $e');
+    }
+  }
+
+  // Grace Period - 30 jours pour confirmer email sinon suppression
+  void _startGracePeriodTimer(String userId) {
+    Timer(const Duration(days: 30), () async {
+      final user = await _supabase.auth.admin.getUserById(userId);
+      if (user.user?.emailConfirmedAt == null) {
+        await _supabase.auth.admin.deleteUser(userId);
+        await _objectBox.deleteUser(userId);
+      }
+    });
+  }
+
+  Future<bool> _checkEmailExists(String email) async {
+    try {
+      final response = await _supabase
+          .from('profiles')
+          .select('id')
+          .eq('email', email)
+          .maybeSingle();
+      return response != null;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<void> _createUserProfile(
+    String userId,
+    String email,
+    String? fullName,
+  ) async {
+    final now = DateTime.now();
+    await _supabase.from('profiles').insert({
+      'id': userId,
+      'email': email,
+      'full_name': fullName,
+      'profile_completed': false,
+      'completion_percentage': 0,
+      'role': 'user',
+      'created_at': now.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+    });
+  }
+
+  Future<void> _loadUserFromSupabase(String userId) async {
+    final data = await _supabase
+        .from('profiles')
+        .select()
+        .eq('id', userId)
+        .single();
+    _currentUser = _mapToUserEntity(data);
+    await _objectBox.saveUser(_currentUser!);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('has_active_session', true);
+
+    _determineAuthStatus();
+  }
+
+  Future<void> _loadUserFromLocal(String userId) async {
+    _currentUser = await _objectBox.getUser(userId);
+    _determineAuthStatus();
+  }
+
+  void _determineAuthStatus() {
+    if (_currentUser == null) {
+      _status = AuthStatus.unauthenticated;
+    } else if (!_currentUser!.profileCompleted) {
+      _status = AuthStatus.profileIncomplete;
+    } else {
+      _status = AuthStatus.authenticated;
+    }
+    notifyListeners();
+  }
+
+  Future<void> _saveUnverifiedUser(String userId, String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('unverified_user_id', userId);
+    await prefs.setString('unverified_email', email);
+  }
+
+  Future<void> _clearLocalSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+  }
+
+  UserEntity _mapToUserEntity(Map<String, dynamic> data) {
+    return UserEntity(
+      userId: data['id'] ?? const Uuid().v4(),
+      email: data['email'] ?? '',
+      fullName: data['full_name'],
+      dateOfBirth: data['date_of_birth'] != null
+          ? DateTime.tryParse(data['date_of_birth'])
+          : null,
+      gender: data['gender'],
+      lookingFor: data['looking_for'],
+      bio: data['bio'],
+      photosJson: jsonEncode(data['photos'] ?? []),
+      photoUrl: data['photo_url'],
+      coverUrl: data['cover_url'],
+      profileCompleted: data['profile_completed'] ?? false,
+      completionPercentage: data['completion_percentage'] ?? 0,
+      occupation: data['occupation'],
+      interestsJson: jsonEncode(data['interests'] ?? []),
+      heightCm: data['height_cm'],
+      education: data['education'],
+      relationshipStatus: data['relationship_status'],
+      instagramHandle: data['instagram_handle'],
+      spotifyAnthem: data['spotify_anthem'],
+      city: data['city'],
+      country: data['country'],
+      latitude: data['latitude']?.toDouble(),
+      longitude: data['longitude']?.toDouble(),
+      role: data['role'] ?? 'user',
+      lastActiveAt: data['last_active_at'] != null
+          ? DateTime.tryParse(data['last_active_at'])
+          : null,
+      createdAt: DateTime.tryParse(data['created_at']) ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(data['updated_at']) ?? DateTime.now(),
+      accessToken: data['access_token'],
+      refreshToken: data['refresh_token'],
+      tokenExpiresAt: data['token_expires_at'] != null
+          ? DateTime.tryParse(data['token_expires_at'])
+          : null,
+      needsSync: data['needs_sync'] ?? false,
+      pendingActionsJson: jsonEncode(data['pending_actions'] ?? []),
+    );
+  }
+
+  String _handleAuthError(AuthException e) {
+    switch (e.statusCode) {
+      case '400':
+        return 'Email ou mot de passe invalide';
+      case '422':
+        return 'Email déjà utilisé';
+      case '429':
+        return 'Trop de tentatives. Réessayez plus tard';
+      default:
+        return e.message;
+    }
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    _stopSessionManagement();
+    super.dispose();
+  }
+}
