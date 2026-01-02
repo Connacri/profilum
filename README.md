@@ -1,16 +1,47 @@
-# profilum
+<div align="center">
 
-A new Profilum project.
+<img src="https://raw.githubusercontent.com/Connacri/profilum/main/assets/icon/icon.png" width="120"/>
 
-## Getting Started
+# PROFILUM
+### Smart Profile Platform
 
-This project is a starting point for a Flutter application.
+Flutter · Supabase · Realtime · Secure
 
-A few resources to get you started if this is your first Flutter project:
+---
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+<p>
+<img src="https://img.shields.io/badge/Flutter-3.x-blue"/>
+<img src="https://img.shields.io/badge/Supabase-Realtime-3ECF8E"/>
+<img src="https://img.shields.io/badge/Platform-Android%20|%20iOS%20|%20Web%20|%20Desktop-informational"/>
+</p>
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+---
+
+**Profilum** est une plateforme Flutter moderne de gestion de profils utilisateurs, conçue pour les applications sociales, CRM et matching avec un backend Supabase sécurisé et temps réel.
+
+</div>
+
+---
+
+## ✨ Fonctionnalités
+
+- Authentification Supabase sécurisée
+- Profils utilisateurs dynamiques
+- Synchronisation temps réel
+- Stockage média sécurisé
+- Architecture Clean MVVM
+- Offline-first & cache intelligent
+- UI Material 3 responsive & accessible
+
+---
+
+## 🧱 Architecture
+
+```text
+lib/
+ └─ features/
+     └─ profile/
+         ├─ ui/
+         ├─ state/
+         ├─ services/
+         └─ data/
