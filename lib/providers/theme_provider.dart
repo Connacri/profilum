@@ -34,7 +34,6 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Thèmes selon le genre
   ThemeData getLightTheme() {
     switch (_userGender) {
       case 'male':
@@ -65,7 +64,6 @@ class ThemeProvider extends ChangeNotifier {
     }
   }
 
-  // Thème Masculin - Bleu profond
   ThemeData _getMaleTheme(bool isDark) {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: const Color(0xFF1E3A8A),
@@ -78,7 +76,6 @@ class ThemeProvider extends ChangeNotifier {
     return _buildTheme(colorScheme, isDark);
   }
 
-  // Thème Féminin - Rose moderne
   ThemeData _getFemaleTheme(bool isDark) {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: const Color(0xFFEC4899),
@@ -91,7 +88,6 @@ class ThemeProvider extends ChangeNotifier {
     return _buildTheme(colorScheme, isDark);
   }
 
-  // Thème MTF - Pastel doux
   ThemeData _getMtfTheme(bool isDark) {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: const Color(0xFF9333EA),
@@ -104,7 +100,6 @@ class ThemeProvider extends ChangeNotifier {
     return _buildTheme(colorScheme, isDark);
   }
 
-  // Thème FTM - Teal moderne
   ThemeData _getFtmTheme(bool isDark) {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: const Color(0xFF0D9488),
@@ -117,7 +112,6 @@ class ThemeProvider extends ChangeNotifier {
     return _buildTheme(colorScheme, isDark);
   }
 
-  // Thème par défaut - Gradient moderne
   ThemeData _getDefaultTheme(bool isDark) {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: const Color(0xFF6366F1),
@@ -135,38 +129,19 @@ class ThemeProvider extends ChangeNotifier {
       useMaterial3: true,
       colorScheme: colorScheme,
       brightness: isDark ? Brightness.dark : Brightness.light,
-      
-      // Typography
+
       textTheme: const TextTheme(
         displayLarge: TextStyle(
           fontSize: 57,
           fontWeight: FontWeight.w400,
           letterSpacing: -0.25,
         ),
-        displayMedium: TextStyle(
-          fontSize: 45,
-          fontWeight: FontWeight.w400,
-        ),
-        displaySmall: TextStyle(
-          fontSize: 36,
-          fontWeight: FontWeight.w400,
-        ),
-        headlineLarge: TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.w400,
-        ),
-        headlineMedium: TextStyle(
-          fontSize: 28,
-          fontWeight: FontWeight.w400,
-        ),
-        headlineSmall: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.w400,
-        ),
-        titleLarge: TextStyle(
-          fontSize: 22,
-          fontWeight: FontWeight.w500,
-        ),
+        displayMedium: TextStyle(fontSize: 45, fontWeight: FontWeight.w400),
+        displaySmall: TextStyle(fontSize: 36, fontWeight: FontWeight.w400),
+        headlineLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.w400),
+        headlineMedium: TextStyle(fontSize: 28, fontWeight: FontWeight.w400),
+        headlineSmall: TextStyle(fontSize: 24, fontWeight: FontWeight.w400),
+        titleLarge: TextStyle(fontSize: 22, fontWeight: FontWeight.w500),
         titleMedium: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w500,
@@ -209,15 +184,12 @@ class ThemeProvider extends ChangeNotifier {
         ),
       ),
 
-      // Card
-      cardTheme: CardTheme(
+      // CORRECTION: CardThemeData au lieu de CardTheme
+      cardTheme: CardThemeData(
         elevation: isDark ? 2 : 1,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
 
-      // AppBar
       appBarTheme: AppBarTheme(
         centerTitle: false,
         elevation: 0,
@@ -225,7 +197,6 @@ class ThemeProvider extends ChangeNotifier {
         foregroundColor: colorScheme.onSurface,
       ),
 
-      // Input
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: isDark
@@ -241,29 +212,20 @@ class ThemeProvider extends ChangeNotifier {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: colorScheme.primary,
-            width: 2,
-          ),
+          borderSide: BorderSide(color: colorScheme.primary, width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: colorScheme.error,
-          ),
+          borderSide: BorderSide(color: colorScheme.error),
         ),
       ),
 
-      // Buttons
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 24,
-            vertical: 12,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
         ),
       ),
 
@@ -272,35 +234,24 @@ class ThemeProvider extends ChangeNotifier {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 24,
-            vertical: 12,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
         ),
       ),
 
-      // Bottom Navigation
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: isDark
-            ? colorScheme.surface
-            : colorScheme.surface,
+        backgroundColor: isDark ? colorScheme.surface : colorScheme.surface,
         selectedItemColor: colorScheme.primary,
         unselectedItemColor: colorScheme.onSurfaceVariant,
         type: BottomNavigationBarType.fixed,
         elevation: 8,
       ),
 
-      // Chip
       chipTheme: ChipThemeData(
         backgroundColor: colorScheme.surfaceVariant,
         selectedColor: colorScheme.primaryContainer,
-        labelStyle: TextStyle(
-          color: colorScheme.onSurfaceVariant,
-        ),
+        labelStyle: TextStyle(color: colorScheme.onSurfaceVariant),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }

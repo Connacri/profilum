@@ -1,14 +1,15 @@
 // lib/core/routing/app_router.dart
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 import 'admin_dashboard.dart';
 import 'auth/auth_screen.dart';
 import 'profile_completion_screen.dart';
+import 'screens/home_screen_complete.dart';
 
-class AppRouter extends RouterDelegate
-    with ChangeNotifier, PopNavigatorRouterDelegateMixin {
+// CORRECTION: RouterDelegate<Object> au lieu de RouterDelegate<void>
+class AppRouter extends RouterDelegate<Object>
+    with ChangeNotifier, PopNavigatorRouterDelegateMixin<Object> {
   @override
   final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -120,11 +121,9 @@ class AppRouter extends RouterDelegate
       return false;
     }
 
-    // Gestion de la navigation back selon le contexte
     final status = _authProvider.status;
 
     if (status == AuthStatus.authenticated) {
-      // Ne pas permettre de revenir en arrière si authentifié
       return false;
     }
 
@@ -132,9 +131,11 @@ class AppRouter extends RouterDelegate
     return true;
   }
 
+  // CORRECTION: Object au lieu de void
   @override
-  Future<void> setNewRoutePath(configuration) async {
+  Future<void> setNewRoutePath(Object configuration) async {
     // Pas de deep linking pour l'instant
+    return;
   }
 
   @override
@@ -144,7 +145,24 @@ class AppRouter extends RouterDelegate
   }
 }
 
-// Email Verification Screen
+// CORRECTION: RouteInformationParser<Object>
+class AppRouteInformationParser extends RouteInformationParser<Object> {
+  @override
+  Future<Object> parseRouteInformation(
+    RouteInformation routeInformation,
+  ) async {
+    return Object();
+  }
+
+  @override
+  RouteInformation? restoreRouteInformation(Object configuration) {
+    return RouteInformation(uri: Uri());
+  }
+}
+
+// ============================================
+// EMAIL VERIFICATION SCREEN
+// ============================================
 class EmailVerificationScreen extends StatelessWidget {
   const EmailVerificationScreen({super.key});
 
@@ -165,9 +183,7 @@ class EmailVerificationScreen extends StatelessWidget {
                 size: 120,
                 color: theme.colorScheme.primary,
               ),
-
               const SizedBox(height: 32),
-
               Text(
                 'Vérifiez votre email',
                 style: theme.textTheme.headlineMedium?.copyWith(
@@ -175,35 +191,23 @@ class EmailVerificationScreen extends StatelessWidget {
                 ),
                 textAlign: TextAlign.center,
               ),
-
               const SizedBox(height: 16),
-
               Text(
                 'Nous avons envoyé un lien de vérification à votre adresse email. Cliquez sur le lien pour activer votre compte.',
                 style: theme.textTheme.bodyLarge,
                 textAlign: TextAlign.center,
               ),
-
               const SizedBox(height: 32),
-
               FilledButton(
-                onPressed: () {
-                  // Ouvrir l'app email
-                },
+                onPressed: () {},
                 child: const Text('Ouvrir l\'app email'),
               ),
-
               const SizedBox(height: 16),
-
               TextButton(
-                onPressed: () {
-                  context.read<AuthProvider>().signOut();
-                },
+                onPressed: () {},
                 child: const Text('Retour à la connexion'),
               ),
-
               const SizedBox(height: 32),
-
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -212,7 +216,11 @@ class EmailVerificationScreen extends StatelessWidget {
                 ),
                 child: Column(
                   children: [
-                    Icon(Icons.warning_amber, color: Colors.orange, size: 32),
+                    const Icon(
+                      Icons.warning_amber,
+                      color: Colors.orange,
+                      size: 32,
+                    ),
                     const SizedBox(height: 8),
                     Text(
                       'Votre compte sera supprimé automatiquement après 30 jours si l\'email n\'est pas vérifié',
@@ -227,177 +235,6 @@ class EmailVerificationScreen extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-// Home Screen with role/gender routing
-class HomeScreen extends StatefulWidget {
-  final String? gender;
-
-  const HomeScreen({super.key, this.gender});
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  int _currentIndex = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profilum'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {
-              // Notifications in-app
-            },
-          ),
-        ],
-      ),
-      body: _buildBody(),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() => _currentIndex = index);
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.explore_outlined),
-            selectedIcon: Icon(Icons.explore),
-            label: 'Découvrir',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.favorite_outline),
-            selectedIcon: Icon(Icons.favorite),
-            label: 'Matches',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline),
-            selectedIcon: Icon(Icons.chat_bubble),
-            label: 'Messages',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profil',
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    switch (_currentIndex) {
-      case 0:
-        return _buildDiscoverPage();
-      case 1:
-        return _buildMatchesPage();
-      case 2:
-        return _buildMessagesPlaceholder();
-      case 3:
-        return _buildProfilePage();
-      default:
-        return const SizedBox.shrink();
-    }
-  }
-
-  Widget _buildDiscoverPage() {
-    return Center(
-      child: Text(
-        'Page Découvrir - Thème ${widget.gender}',
-        style: Theme.of(context).textTheme.headlineSmall,
-      ),
-    );
-  }
-
-  Widget _buildMatchesPage() {
-    return Center(
-      child: Text(
-        'Page Matches',
-        style: Theme.of(context).textTheme.headlineSmall,
-      ),
-    );
-  }
-
-  Widget _buildMessagesPlaceholder() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.chat_bubble_outline, size: 80, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text(
-            'Messagerie P2P',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'À venir dans la prochaine version',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProfilePage() {
-    final authProvider = context.read<AuthProvider>();
-    final user = authProvider.currentUser;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          CircleAvatar(
-            radius: 60,
-            backgroundImage: user?.photoUrl != null
-                ? NetworkImage(user!.photoUrl!)
-                : null,
-            child: user?.photoUrl == null
-                ? const Icon(Icons.person, size: 60)
-                : null,
-          ),
-
-          const SizedBox(height: 16),
-
-          Text(
-            user?.fullName ?? 'Utilisateur',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-          ),
-
-          const SizedBox(height: 32),
-
-          ListTile(
-            leading: const Icon(Icons.settings),
-            title: const Text('Paramètres'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              // Navigation paramètres
-            },
-          ),
-
-          ListTile(
-            leading: const Icon(Icons.logout),
-            title: const Text('Déconnexion'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () async {
-              await authProvider.signOut();
-            },
-          ),
-        ],
       ),
     );
   }

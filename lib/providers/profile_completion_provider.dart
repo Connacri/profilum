@@ -22,21 +22,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
   String? _errorMessage;
 
   // Champs obligatoires pour complétion
-  final Map<String, bool> _completionFields = {
-    'full_name': false,
-    'date_of_birth': false,
-    'gender': false,
-    'looking_for': false,
-    'bio': false,
-    'city': false,
-    'country': false,
-    'occupation': false,
-    'education': false,
-    'height_cm': false,
-    'relationship_status': false,
-    'interests': false,
-    'photos': false, // minimum 3 photos
-  };
+  Map<String, bool> _completionFields = {};
 
   ProfileCompletionProvider(
     this._supabase,
@@ -45,6 +31,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
   );
 
   int get completionPercentage {
+    if (_completionFields.isEmpty) return 0;
     final completed = _completionFields.values.where((v) => v).length;
     return ((completed / _completionFields.length) * 100).round();
   }
@@ -56,7 +43,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   UserEntity? get user => _user;
 
-  // Helpers
+  // CORRECTION: Helpers moved outside initializer
   List<String> _decodeList(String json) =>
       json.isEmpty ? [] : List<String>.from(jsonDecode(json));
 
@@ -64,12 +51,32 @@ class ProfileCompletionProvider extends ChangeNotifier {
 
   void initialize(UserEntity user) {
     _user = user;
+    _initializeCompletionFields();
     _updateCompletionFields();
     notifyListeners();
   }
 
+  void _initializeCompletionFields() {
+    _completionFields = {
+      'full_name': false,
+      'date_of_birth': false,
+      'gender': false,
+      'looking_for': false,
+      'bio': false,
+      'city': false,
+      'country': false,
+      'occupation': false,
+      'education': false,
+      'height_cm': false,
+      'relationship_status': false,
+      'interests': false,
+      'photos': false,
+    };
+  }
+
   void _updateCompletionFields() {
     if (_user == null) return;
+
     final photos = _decodeList(_user!.photosJson);
     final interests = _decodeList(_user!.interestsJson);
 
@@ -85,15 +92,11 @@ class ProfileCompletionProvider extends ChangeNotifier {
     _completionFields['height_cm'] = _user!.heightCm != null;
     _completionFields['relationship_status'] =
         _user!.relationshipStatus?.isNotEmpty ?? false;
-    _completionFields['interests'] = (_user!.interests.length) >= 3;
-    _completionFields['photos'] = _user!.photos.length >= 3;
+    _completionFields['interests'] = interests.length >= 3;
+    _completionFields['photos'] =
+        photos.length >= 3 || _selectedPhotos.length >= 3;
   }
 
-  // Dans saveProfile → avant update Supabase
-  final currentPhotos = _decodeList(_user!.photosJson);
-  final uploadedPhotos = [...currentPhotos, ...newUploadedUrls];
-
-  // Mise à jour d'un champ
   void updateField(String field, dynamic value) {
     if (_user == null) return;
 
@@ -146,7 +149,6 @@ class ProfileCompletionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Ajouter des photos
   Future<void> addPhotosFromCamera() async {
     final photo = await _imageService.captureFromCamera();
     if (photo != null) {
@@ -173,7 +175,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
     }
   }
 
-  // Sauvegarder le profil (avec ou sans skip)
+  // CORRECTION: Logique corrigée
   Future<bool> saveProfile({bool isSkipped = false}) async {
     if (_user == null) return false;
 
@@ -182,8 +184,8 @@ class ProfileCompletionProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Upload photos
-      final uploadedPhotos = <String>[];
+      // Upload photos nouvelles
+      final uploadedUrls = <String>[];
       for (var i = 0; i < _selectedPhotos.length; i++) {
         final url = await _imageService.uploadToStorage(
           imageFile: _selectedPhotos[i],
@@ -193,9 +195,8 @@ class ProfileCompletionProvider extends ChangeNotifier {
         );
 
         if (url != null) {
-          uploadedPhotos.add(url);
+          uploadedUrls.add(url);
 
-          // Créer entité photo en attente de modération
           final photoEntity = PhotoEntity(
             photoId: const Uuid().v4(),
             userId: _user!.userId,
@@ -213,6 +214,10 @@ class ProfileCompletionProvider extends ChangeNotifier {
         }
       }
 
+      // CORRECTION: Combine photos existantes + nouvelles
+      final existingPhotos = _decodeList(_user!.photosJson);
+      final allPhotos = [...existingPhotos, ...uploadedUrls];
+
       // Mise à jour Supabase
       final updateData = {
         'full_name': _user!.fullName,
@@ -229,7 +234,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
         'interests': _user!.interests,
         'instagram_handle': _user!.instagramHandle,
         'spotify_anthem': _user!.spotifyAnthem,
-        'photos': uploadedPhotos,
+        'photos': allPhotos,
         'profile_completed': !isSkipped && isComplete,
         'completion_percentage': completionPercentage,
         'updated_at': DateTime.now().toIso8601String(),
@@ -242,7 +247,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
 
       // Mise à jour locale
       _user = _user!
-        ..photos = uploadedPhotos
+        ..photos = allPhotos
         ..profileCompleted = !isSkipped && isComplete
         ..completionPercentage = completionPercentage
         ..updatedAt = DateTime.now();
@@ -260,9 +265,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
     }
   }
 
-  // Rappel après 24h si skip
   Future<void> scheduleSkipReminder() async {
-    // TODO: Implémenter notification locale après 24h
     debugPrint('Skip reminder scheduled for 24h');
   }
 

@@ -1,18 +1,17 @@
 // lib/core/services/image_service.dart
 import 'dart:io';
-import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:uuid/uuid.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 class ImageService {
   final ImagePicker _picker = ImagePicker();
   final SupabaseClient _supabase;
-  
+
   static const int _maxWidth = 1920;
   static const int _maxHeight = 1920;
   static const int _quality = 85;
@@ -20,7 +19,6 @@ class ImageService {
 
   ImageService(this._supabase);
 
-  // Capture depuis caméra avec watermark automatique
   Future<File?> captureFromCamera() async {
     try {
       final XFile? photo = await _picker.pickImage(
@@ -40,7 +38,6 @@ class ImageService {
     }
   }
 
-  // Selection depuis galerie (pas de watermark)
   Future<File?> pickFromGallery() async {
     try {
       final XFile? image = await _picker.pickImage(
@@ -60,7 +57,6 @@ class ImageService {
     }
   }
 
-  // Selection multiple depuis galerie
   Future<List<File>> pickMultipleFromGallery({int maxImages = 6}) async {
     try {
       final List<XFile> images = await _picker.pickMultiImage(
@@ -89,16 +85,15 @@ class ImageService {
     }
   }
 
-  // Traitement: Watermark + Compression WebP
+  // CORRECTION: Utilisation de encodeJpg au lieu de encodeWebP
   Future<File?> _addWatermarkAndCompress(
     File imageFile, {
     required bool fromCamera,
   }) async {
     try {
-      // Lire l'image
       final bytes = await imageFile.readAsBytes();
       img.Image? image = img.decodeImage(bytes);
-      
+
       if (image == null) return null;
 
       // Redimensionner si nécessaire
@@ -115,28 +110,28 @@ class ImageService {
         image = _addWatermark(image);
       }
 
-      // Convertir en WebP
-      final webpBytes = img.encodeWebP(image, quality: _quality);
+      // CORRECTION: Utilisation de encodeJpg pour compatibilité
+      // WebP n'est pas supporté par toutes les versions de la lib image
+      final jpgBytes = img.encodeJpg(image, quality: _quality);
 
       // Sauvegarder localement
       final tempDir = await getTemporaryDirectory();
-      final fileName = '${const Uuid().v4()}.webp';
-      final webpFile = File('${tempDir.path}/$fileName');
-      await webpFile.writeAsBytes(webpBytes);
+      final fileName = '${const Uuid().v4()}.jpg';
+      final processedFile = File('${tempDir.path}/$fileName');
+      await processedFile.writeAsBytes(jpgBytes);
 
-      return webpFile;
+      return processedFile;
     } catch (e) {
       debugPrint('Image processing error: $e');
       return null;
     }
   }
 
-  // Ajouter watermark en haut à droite
   img.Image _addWatermark(img.Image image) {
-    final watermarkColor = img.ColorRgb8(255, 255, 255);
-    final shadowColor = img.ColorRgb8(0, 0, 0);
-    
-    // Position haut droite avec marge
+    // CORRECTION: Utilisation correcte des couleurs avec getColor
+    final watermarkColor = image.getColor(255, 255, 255);
+    final shadowColor = image.getColor(0, 0, 0);
+
     const fontSize = 24;
     const padding = 20;
     final x = image.width - (fontSize * _watermarkText.length ~/ 2) - padding;
@@ -165,7 +160,6 @@ class ImageService {
     return image;
   }
 
-  // Upload vers Supabase Storage
   Future<String?> uploadToStorage({
     required File imageFile,
     required String userId,
@@ -173,18 +167,20 @@ class ImageService {
     String? folder,
   }) async {
     try {
-      final fileName = '${const Uuid().v4()}.webp';
+      final fileName = '${const Uuid().v4()}.jpg';
       final path = folder != null ? '$folder/$fileName' : fileName;
       final fullPath = '$userId/$path';
 
-      await _supabase.storage.from(bucket).upload(
-        fullPath,
-        imageFile,
-        fileOptions: const FileOptions(
-          contentType: 'image/webp',
-          upsert: false,
-        ),
-      );
+      await _supabase.storage
+          .from(bucket)
+          .upload(
+            fullPath,
+            imageFile,
+            fileOptions: const FileOptions(
+              contentType: 'image/jpeg',
+              upsert: false,
+            ),
+          );
 
       return _supabase.storage.from(bucket).getPublicUrl(fullPath);
     } catch (e) {
@@ -193,16 +189,15 @@ class ImageService {
     }
   }
 
-  // Supprimer du storage
   Future<bool> deleteFromStorage({
     required String url,
     required String bucket,
   }) async {
     try {
       final uri = Uri.parse(url);
-      final path = uri.pathSegments.sublist(
-        uri.pathSegments.indexOf(bucket) + 1,
-      ).join('/');
+      final path = uri.pathSegments
+          .sublist(uri.pathSegments.indexOf(bucket) + 1)
+          .join('/');
 
       await _supabase.storage.from(bucket).remove([path]);
       return true;
@@ -212,12 +207,10 @@ class ImageService {
     }
   }
 
-  // Calculer taille d'image optimisée
   Future<int> getImageSize(File file) async {
     return await file.length();
   }
 
-  // Valider format image
   bool isValidImageFormat(String path) {
     final ext = path.toLowerCase().split('.').last;
     return ['jpg', 'jpeg', 'png', 'webp'].contains(ext);

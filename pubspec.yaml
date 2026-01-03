@@ -10,17 +10,18 @@ environment:
   sdk: ^3.10.3
 
 dependencies:
+  # Flutter Core
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+
+  # State Management
   provider: ^6.1.5+1
 
   # Supabase
   supabase_flutter: ^2.12.0
 
   # Local Storage
-  objectbox: ^5.1.0
-  objectbox_flutter_libs: any
   shared_preferences: ^2.5.4
 
   # Image Processing
@@ -34,21 +35,40 @@ dependencies:
   cached_network_image: ^3.4.1
   shimmer: ^3.0.0
   fl_chart: ^1.1.1
+  lottie: ^3.3.2
+
+  # Internationalization
   intl: ^0.20.2
 
   # Utilities
   uuid: ^4.5.2
   path_provider: ^2.1.5
   permission_handler: ^12.0.1
-  connectivity_plus: ^7.0.0
+  connectivity_plus: ^6.1.0  # Plus stable sur Windows Desktop
   rxdart: ^0.28.0
+  url_launcher: ^6.3.2
+  screenshot: ^3.0.0
+
+  # Authentication
+  google_sign_in: ^7.2.0
+
+  # Database
+  objectbox: ^5.1.0
+  objectbox_flutter_libs: ^5.1.0
 
 dev_dependencies:
+  # Testing
   flutter_test:
     sdk: flutter
 
+  # App Launcher Icons
+  flutter_launcher_icons: ^0.14.4
+
+  # Code Generation
+  objectbox_generator: ^5.1.0
   build_runner: ^2.10.4
-  objectbox_generator: any
+
+  # Linting
   flutter_lints: ^6.0.0
 
 

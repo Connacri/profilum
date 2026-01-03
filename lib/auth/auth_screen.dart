@@ -77,17 +77,18 @@ class _AuthScreenState extends State<AuthScreen>
       );
     }
 
-    setState(() => _isLoading = false);
+    if (mounted) {
+      setState(() => _isLoading = false);
 
-    if (success && mounted) {
-      // Navigation gérée par le RouterDelegate selon le status
-    } else if (mounted && authProvider.errorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(authProvider.errorMessage!),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (!success && authProvider.errorMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(authProvider.errorMessage!),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -175,7 +176,7 @@ class _AuthScreenState extends State<AuthScreen>
 
                     // Form Card
                     Container(
-                      constraints: BoxConstraints(maxWidth: 400),
+                      constraints: const BoxConstraints(maxWidth: 400),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(24),
@@ -394,14 +395,16 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
       _emailController.text.trim(),
     );
 
-    setState(() {
-      _isLoading = false;
-      _emailSent = success;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        _emailSent = success;
+      });
 
-    if (success) {
-      await Future.delayed(const Duration(seconds: 2));
-      if (mounted) Navigator.of(context).pop();
+      if (success) {
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) Navigator.of(context).pop();
+      }
     }
   }
 
@@ -477,7 +480,11 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
                   : const Text('Envoyer le lien'),
             ),
           ] else ...[
-            Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
+            const Icon(
+              Icons.check_circle_outline,
+              size: 64,
+              color: Colors.green,
+            ),
 
             const SizedBox(height: 16),
 

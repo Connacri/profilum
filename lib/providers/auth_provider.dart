@@ -33,7 +33,6 @@ class AuthProvider extends ChangeNotifier {
   Timer? _heartbeatTimer;
   StreamSubscription? _authSubscription;
 
-  // Session management (comme GAFAM: 30 jours avec refresh automatique)
   static const Duration _sessionDuration = Duration(days: 30);
   static const Duration _refreshBuffer = Duration(hours: 1);
   static const Duration _heartbeatInterval = Duration(minutes: 5);
@@ -53,7 +52,6 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Vérifier session locale
       final prefs = await SharedPreferences.getInstance();
       final hasSession = prefs.getBool('has_active_session') ?? false;
 
@@ -73,6 +71,7 @@ class AuthProvider extends ChangeNotifier {
     } catch (e) {
       _errorMessage = 'Erreur d\'initialisation: $e';
       _status = AuthStatus.error;
+      debugPrint('Init auth error: $e');
     }
 
     notifyListeners();
@@ -103,20 +102,20 @@ class AuthProvider extends ChangeNotifier {
     await _clearLocalSession();
     _stopSessionManagement();
     _status = AuthStatus.unauthenticated;
+    _currentUser = null;
     notifyListeners();
   }
 
   Future<void> _handleTokenRefresh(Session session) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('access_token', session.accessToken);
-    await prefs.setInt(
-      'token_expires_at',
-      session.expiresAt ??
-          DateTime.now().add(_sessionDuration).millisecondsSinceEpoch ~/ 1000,
-    );
+    final expiresAt =
+        session.expiresAt ??
+        DateTime.now().add(_sessionDuration).millisecondsSinceEpoch ~/ 1000;
+    await prefs.setInt('token_expires_at', expiresAt);
   }
 
-  // SIGNUP - avec gestion email existant → login automatique
+  // ===== SIGNUP =====
   Future<bool> signUp({
     required String email,
     required String password,
@@ -131,15 +130,6 @@ class AuthProvider extends ChangeNotifier {
         throw Exception('Aucune connexion Internet');
       }
 
-      // Vérifier si email existe déjà
-      final existingUser = await _checkEmailExists(email);
-
-      if (existingUser) {
-        // Email existe → convertir en login
-        return await signIn(email: email, password: password);
-      }
-
-      // Nouveau compte
       final response = await _supabase.auth.signUp(
         email: email,
         password: password,
@@ -147,14 +137,29 @@ class AuthProvider extends ChangeNotifier {
       );
 
       if (response.user != null) {
+        // Créer le profil minimal
+        await _createMinimalUserProfile(response.user!.id, email, fullName);
+
+        // Vérifier que le profil a bien été créé
+        final profile = await _supabase
+            .from('profiles')
+            .select()
+            .eq('id', response.user!.id)
+            .single();
+
+        if (profile == null) {
+          throw Exception('Échec de création du profil. Veuillez réessayer.');
+        }
+
         if (response.user!.emailConfirmedAt == null) {
           _status = AuthStatus.emailVerificationPending;
           await _saveUnverifiedUser(response.user!.id, email);
           _startGracePeriodTimer(response.user!.id);
         } else {
-          await _createUserProfile(response.user!.id, email, fullName);
+          await _loadUserFromSupabase(response.user!.id);
           _status = AuthStatus.profileIncomplete;
         }
+
         notifyListeners();
         return true;
       }
@@ -173,7 +178,25 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // LOGIN
+  Future<void> _createMinimalUserProfile(
+    String userId,
+    String email,
+    String? fullName,
+  ) async {
+    final now = DateTime.now();
+    await _supabase.from('profiles').upsert({
+      'id': userId,
+      'email': email,
+      'full_name': fullName ?? '',
+      'profile_completed': false,
+      'completion_percentage': 0,
+      'role': 'user',
+      'created_at': now.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+    });
+  }
+
+  // ===== LOGIN =====
   Future<bool> signIn({required String email, required String password}) async {
     _status = AuthStatus.loading;
     _errorMessage = null;
@@ -181,7 +204,6 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       if (!_networkService.isConnected) {
-        // Mode offline - vérifier cache local
         final cachedUser = await _objectBox.getUserByEmail(email);
         if (cachedUser != null) {
           _currentUser = cachedUser;
@@ -217,7 +239,7 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // RESET PASSWORD
+  // ===== RESET PASSWORD =====
   Future<bool> resetPassword(String email) async {
     try {
       if (!_networkService.isConnected) {
@@ -232,7 +254,7 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // LOGOUT
+  // ===== LOGOUT =====
   Future<void> signOut() async {
     await _supabase.auth.signOut();
     await _clearLocalSession();
@@ -242,18 +264,14 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // DELETE ACCOUNT
+  // ===== DELETE ACCOUNT =====
   Future<bool> deleteAccount() async {
     if (_currentUser == null) return false;
 
     try {
       final userId = _currentUser!.userId;
 
-      // Supprimer de Supabase
       await _supabase.from('profiles').delete().eq('id', userId);
-      await _supabase.auth.admin.deleteUser(userId);
-
-      // Supprimer local
       await _objectBox.deleteUser(userId);
       await _clearLocalSession();
 
@@ -267,16 +285,14 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // Session Management (comme GAFAM)
+  // ===== SESSION MANAGEMENT =====
   void _startSessionManagement() {
     _stopSessionManagement();
 
-    // Refresh automatique avant expiration
     _sessionTimer = Timer.periodic(_refreshBuffer, (_) async {
       await _validateAndRefreshSession();
     });
 
-    // Heartbeat pour activité
     _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) async {
       await _updateLastActive();
     });
@@ -322,13 +338,22 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // Grace Period - 30 jours pour confirmer email sinon suppression
+  // ===== HELPERS =====
   void _startGracePeriodTimer(String userId) {
     Timer(const Duration(days: 30), () async {
-      final user = await _supabase.auth.admin.getUserById(userId);
-      if (user.user?.emailConfirmedAt == null) {
-        await _supabase.auth.admin.deleteUser(userId);
-        await _objectBox.deleteUser(userId);
+      try {
+        final response = await _supabase
+            .from('profiles')
+            .select('created_at')
+            .eq('id', userId)
+            .single();
+
+        if (response != null) {
+          await _supabase.from('profiles').delete().eq('id', userId);
+          await _objectBox.deleteUser(userId);
+        }
+      } catch (e) {
+        debugPrint('Grace period cleanup error: $e');
       }
     });
   }
@@ -339,7 +364,7 @@ class AuthProvider extends ChangeNotifier {
           .from('profiles')
           .select('id')
           .eq('email', email)
-          .maybeSingle();
+          .single();
       return response != null;
     } catch (e) {
       return false;
@@ -365,18 +390,36 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _loadUserFromSupabase(String userId) async {
-    final data = await _supabase
-        .from('profiles')
-        .select()
-        .eq('id', userId)
-        .single();
-    _currentUser = _mapToUserEntity(data);
-    await _objectBox.saveUser(_currentUser!);
+    try {
+      debugPrint('Chargement du profil pour userId: $userId');
+      final data = await _supabase
+          .from('profiles')
+          .select()
+          .eq('id', userId)
+          .single();
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('has_active_session', true);
+      if (data == null) {
+        debugPrint(
+          'Aucun profil trouvé pour userId: $userId. Création d\'un profil minimal...',
+        );
+        await _createMinimalUserProfile(userId, 'email@inconnu.com', null);
+        _errorMessage = 'Profil créé. Veuillez compléter vos informations.';
+        _status = AuthStatus.profileIncomplete;
+        notifyListeners();
+        return;
+      }
 
-    _determineAuthStatus();
+      _currentUser = _mapToUserEntity(data);
+      await _objectBox.saveUser(_currentUser!);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('has_active_session', true);
+      _determineAuthStatus();
+    } catch (e) {
+      _errorMessage = 'Erreur de chargement du profil: $e';
+      _status = AuthStatus.error;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> _loadUserFromLocal(String userId) async {
@@ -437,15 +480,9 @@ class AuthProvider extends ChangeNotifier {
       lastActiveAt: data['last_active_at'] != null
           ? DateTime.tryParse(data['last_active_at'])
           : null,
-      createdAt: DateTime.tryParse(data['created_at']) ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(data['updated_at']) ?? DateTime.now(),
-      accessToken: data['access_token'],
-      refreshToken: data['refresh_token'],
-      tokenExpiresAt: data['token_expires_at'] != null
-          ? DateTime.tryParse(data['token_expires_at'])
-          : null,
-      needsSync: data['needs_sync'] ?? false,
-      pendingActionsJson: jsonEncode(data['pending_actions'] ?? []),
+      createdAt: DateTime.tryParse(data['created_at'] ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(data['updated_at'] ?? '') ?? DateTime.now(),
+      needsSync: false,
     );
   }
 
