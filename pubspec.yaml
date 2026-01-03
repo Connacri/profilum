@@ -82,3 +82,38 @@ flutter:
     - assets/images/
     - assets/avatars/
     - assets/logos/
+
+
+  fonts:
+    - family: PlayfairDisplay
+      fonts:
+        - asset: assets/fonts/PlayfairDisplay-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/PlayfairDisplay-Italic.ttf
+          style: italic
+          weight: 400
+        - asset: assets/fonts/PlayfairDisplay-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/PlayfairDisplay-MediumItalic.ttf
+          style: italic
+          weight: 500
+        - asset: assets/fonts/PlayfairDisplay-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/PlayfairDisplay-SemiBoldItalic.ttf
+          style: italic
+          weight: 600
+        - asset: assets/fonts/PlayfairDisplay-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/PlayfairDisplay-BoldItalic.ttf
+          style: italic
+          weight: 700
+        - asset: assets/fonts/PlayfairDisplay-ExtraBold.ttf
+          weight: 800
+        - asset: assets/fonts/PlayfairDisplay-ExtraBoldItalic.ttf
+          style: italic
+          weight: 800
+        - asset: assets/fonts/PlayfairDisplay-Black.ttf
+          weight: 900
+        - asset: assets/fonts/PlayfairDisplay-BlackItalic.ttf
+          style: italic
+          weight: 900

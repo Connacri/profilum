@@ -129,6 +129,8 @@ class ThemeProvider extends ChangeNotifier {
       useMaterial3: true,
       colorScheme: colorScheme,
       brightness: isDark ? Brightness.dark : Brightness.light,
+      fontFamily:
+          'PlayfairDisplay', // Police par défaut pour toute l'application
 
       textTheme: const TextTheme(
         displayLarge: TextStyle(
