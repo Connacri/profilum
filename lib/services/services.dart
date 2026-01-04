@@ -1,90 +1,15 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../objectbox.g.dart'; // IMPORTANT: Import généré
+import '../objectbox.g.dart';
 import '../objectbox_entities_complete.dart';
 
-// class NetworkService extends ChangeNotifier {
-//   bool _isConnected = true;
-//   final Connectivity _connectivity = Connectivity();
-//   StreamSubscription<List<ConnectivityResult>>? _subscription;
-//   Timer? _pollTimer;
-//
-//   bool get isConnected => _isConnected;
-//
-//   NetworkService() {
-//     _initConnectivity();
-//   }
-//
-//   Future<void> _initConnectivity() async {
-//     try {
-//       final results = await _connectivity.checkConnectivity();
-//       _updateConnectionStatus(results);
-//
-//       // Sur Windows/Linux Desktop : Polling au lieu de stream
-//       if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
-//         debugPrint('NetworkService: Using polling for Windows/Linux');
-//         _startPolling();
-//       } else {
-//         // Android/iOS/Web/macOS : Stream classique
-//         _subscription = _connectivity.onConnectivityChanged.listen(
-//           _updateConnectionStatus,
-//           onError: (e) => debugPrint('Connectivity stream error: $e'),
-//         );
-//       }
-//     } catch (e) {
-//       debugPrint('NetworkService init error: $e');
-//       _isConnected = true; // Assume connected on error
-//     }
-//   }
-//
-//   /// Polling pour Windows Desktop (évite le bug du stream)
-//   void _startPolling() {
-//     _pollTimer?.cancel();
-//     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
-//       try {
-//         final results = await _connectivity.checkConnectivity();
-//         _updateConnectionStatus(results);
-//       } catch (e) {
-//         debugPrint('Connectivity poll error: $e');
-//       }
-//     });
-//   }
-//
-//   void _updateConnectionStatus(List<ConnectivityResult> results) {
-//     final wasConnected = _isConnected;
-//     _isConnected =
-//         results.isNotEmpty && results.any((r) => r != ConnectivityResult.none);
-//
-//     if (wasConnected != _isConnected) {
-//       debugPrint('NetworkService: $_isConnected');
-//       notifyListeners();
-//     }
-//   }
-//
-//   Future<bool> checkConnectivity() async {
-//     try {
-//       final results = await _connectivity.checkConnectivity();
-//       _updateConnectionStatus(results);
-//       return _isConnected;
-//     } catch (e) {
-//       return _isConnected;
-//     }
-//   }
-//
-//   @override
-//   void dispose() {
-//     _subscription?.cancel();
-//     _pollTimer?.cancel();
-//     super.dispose();
-//   }
-// }
-
 // ========================================
-// OBJECTBOX SERVICE
+// OBJECTBOX SERVICE - FIX
 // ========================================
 class ObjectBoxService {
   late final Store _store;
@@ -110,7 +35,6 @@ class ObjectBoxService {
     final dir = await getApplicationDocumentsDirectory();
     final storePath = path.join(dir.path, 'objectboxDBProfilum');
 
-    // CORRECTION: Utilisation de openStore depuis objectbox.g.dart
     _store = await openStore(directory: storePath);
 
     _userBox = Box<UserEntity>(_store);
@@ -119,9 +43,25 @@ class ObjectBoxService {
     _notificationBox = Box<NotificationEntity>(_store);
   }
 
-  // User operations
+  // ✅ FIX: User operations - Update existing entity
   Future<void> saveUser(UserEntity user) async {
+    // ✅ Chercher l'entité existante par userId (unique)
+    final query = _userBox
+        .query(UserEntity_.userId.equals(user.userId))
+        .build();
+    final existing = query.findFirst();
+    query.close();
+
+    if (existing != null) {
+      // ✅ IMPORTANT: Garder l'ID ObjectBox existant
+      user.id = existing.id;
+      debugPrint('✅ Updating existing user - ObjectBox ID: ${user.id}');
+    } else {
+      debugPrint('✅ Creating new user in ObjectBox');
+    }
+
     _userBox.put(user);
+    debugPrint('✅ User saved successfully');
   }
 
   Future<UserEntity?> getUser(String userId) async {

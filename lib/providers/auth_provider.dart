@@ -104,6 +104,128 @@ class AuthProvider extends ChangeNotifier {
     return false;
   }
 
+  // ✅ Méthode reloadCurrentUser (à ajouter)
+  Future<void> reloadCurrentUser() async {
+    if (_currentUser == null) {
+      debugPrint('❌ reloadCurrentUser: No current user');
+      return;
+    }
+
+    final userId = _currentUser!.userId;
+    debugPrint('🔵 Reloading user: $userId');
+
+    try {
+      await _loadUserFromSupabase(userId);
+
+      debugPrint('✅ User reloaded successfully');
+      debugPrint('   Profile completed: ${_currentUser?.profileCompleted}');
+      debugPrint('   Completion %: ${_currentUser?.completionPercentage}');
+      debugPrint('   New status: $_status');
+    } catch (e, stack) {
+      debugPrint('❌ reloadCurrentUser error: $e');
+      debugPrint('Stack: $stack');
+      rethrow;
+    }
+  }
+
+  // ✅ Version améliorée de _loadUserFromSupabase (remplace l'existante)
+  Future<void> _loadUserFromSupabase(String userId) async {
+    try {
+      debugPrint('🔵 Loading profile for userId: $userId');
+
+      final data = await _supabase
+          .from('profiles')
+          .select()
+          .eq('id', userId)
+          .single();
+
+      if (data == null) {
+        debugPrint('❌ No profile found for userId: $userId');
+        await _createMinimalUserProfile(userId, 'email@inconnu.com', null);
+        _errorMessage = 'Profil créé. Veuillez compléter vos informations.';
+        _status = AuthStatus.profileIncomplete;
+        notifyListeners();
+        return;
+      }
+
+      debugPrint('✅ Profile data loaded from Supabase');
+      debugPrint('   Email: ${data['email']}');
+      debugPrint('   Profile completed: ${data['profile_completed']}');
+      debugPrint('   Completion %: ${data['completion_percentage']}');
+
+      _currentUser = _mapToUserEntity(data);
+
+      debugPrint('💾 Saving to ObjectBox...');
+      await _objectBox.saveUser(_currentUser!);
+      debugPrint('✅ Saved to ObjectBox successfully');
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('has_active_session', true);
+
+      debugPrint('🔵 Determining auth status...');
+      await _determineAuthStatus();
+
+      debugPrint('✅ Final status: $_status');
+    } catch (e, stack) {
+      debugPrint('❌ Load user error: $e');
+      debugPrint('Stack: $stack');
+      _errorMessage = 'Erreur de chargement du profil: $e';
+      _status = AuthStatus.error;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  // ✅ Version améliorée de _determineAuthStatus (remplace l'existante)
+  Future<void> _determineAuthStatus() async {
+    debugPrint('════════════════════════════════════════');
+    debugPrint('🔍 DETERMINING AUTH STATUS');
+    debugPrint('════════════════════════════════════════');
+
+    if (_currentUser == null) {
+      _status = AuthStatus.unauthenticated;
+      debugPrint('❌ No user → unauthenticated');
+    } else {
+      debugPrint('✅ User found:');
+      debugPrint('   - Email: ${_currentUser!.email}');
+      debugPrint('   - Name: ${_currentUser!.fullName}');
+      debugPrint('   - Profile completed: ${_currentUser!.profileCompleted}');
+      debugPrint('   - Completion %: ${_currentUser!.completionPercentage}%');
+
+      if (_currentUser!.profileCompleted) {
+        _status = AuthStatus.authenticated;
+        debugPrint('✅ Profile complete → authenticated');
+      } else {
+        // Profil incomplet : vérifier si skip
+        final hasSkipped = await hasSkippedCompletion();
+        debugPrint('   - Has skipped: $hasSkipped');
+
+        if (hasSkipped) {
+          final skippedDate = await getSkippedDate();
+          debugPrint('   - Skipped at: $skippedDate');
+
+          _status = AuthStatus.authenticated; // Skip = accès autorisé
+          debugPrint('✅ Profile incomplete but skipped → authenticated');
+        } else {
+          _status =
+              AuthStatus.profileIncomplete; // Pas skip = proposer completion
+          debugPrint(
+            '⚠️ Profile incomplete and not skipped → profileIncomplete',
+          );
+        }
+      }
+    }
+
+    debugPrint('════════════════════════════════════════');
+    debugPrint('📊 FINAL STATUS: $_status');
+    debugPrint('════════════════════════════════════════');
+
+    notifyListeners();
+  }
+
+  // La méthode _loadUserFromSupabase existe déjà, mais voici sa version
+  // avec des logs supplémentaires si tu veux la remplacer :
+
   Future<void> _initAuth() async {
     _status = AuthStatus.loading;
     notifyListeners();
@@ -434,73 +556,10 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ===== HELPERS =====
-  Future<void> _loadUserFromSupabase(String userId) async {
-    try {
-      debugPrint('🔵 Loading profile for userId: $userId');
-      final data = await _supabase
-          .from('profiles')
-          .select()
-          .eq('id', userId)
-          .single();
-
-      if (data == null) {
-        debugPrint('❌ No profile found for userId: $userId');
-        await _createMinimalUserProfile(userId, 'email@inconnu.com', null);
-        _errorMessage = 'Profil créé. Veuillez compléter vos informations.';
-        _status = AuthStatus.profileIncomplete;
-        notifyListeners();
-        return;
-      }
-
-      _currentUser = _mapToUserEntity(data);
-      await _objectBox.saveUser(_currentUser!);
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('has_active_session', true);
-
-      debugPrint('✅ User loaded, determining auth status...');
-      await _determineAuthStatus();
-    } catch (e, stack) {
-      debugPrint('❌ Load user error: $e');
-      debugPrint('Stack: $stack');
-      _errorMessage = 'Erreur de chargement du profil: $e';
-      _status = AuthStatus.error;
-      notifyListeners();
-      rethrow;
-    }
-  }
 
   Future<void> _loadUserFromLocal(String userId) async {
     _currentUser = await _objectBox.getUser(userId);
     await _determineAuthStatus();
-  }
-
-  // ✨ FIX: Nouvelle logique pour déterminer le statut
-  Future<void> _determineAuthStatus() async {
-    debugPrint('🔵 Determining auth status...');
-    debugPrint('   - User: ${_currentUser?.email}');
-    debugPrint('   - Profile completed: ${_currentUser?.profileCompleted}');
-
-    if (_currentUser == null) {
-      _status = AuthStatus.unauthenticated;
-      debugPrint('   → Status: unauthenticated (no user)');
-    } else if (_currentUser!.profileCompleted) {
-      _status = AuthStatus.authenticated;
-      debugPrint('   → Status: authenticated (profile complete)');
-    } else {
-      // Profil incomplet : vérifier si skip
-      final hasSkipped = await hasSkippedCompletion();
-      debugPrint('   - Has skipped: $hasSkipped');
-
-      _status = hasSkipped
-          ? AuthStatus
-                .authenticated // A skip = accès autorisé
-          : AuthStatus.profileIncomplete; // Pas skip = proposer completion
-
-      debugPrint('   → Status: $_status');
-    }
-
-    notifyListeners();
   }
 
   Future<void> _clearLocalSession() async {

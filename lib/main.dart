@@ -1,4 +1,5 @@
-// lib/main.dart - NETTOYÉ
+// lib/main.dart - FIX : Ne pas appeler setUserGender pendant le build
+
 import 'package:flutter/material.dart';
 import 'package:profilum/services/services.dart';
 import 'package:provider/provider.dart';
@@ -58,14 +59,15 @@ class ProfilumApp extends StatelessWidget {
       ],
       child: Consumer2<ThemeProvider, AuthProvider>(
         builder: (context, themeProvider, authProvider, _) {
-          if (authProvider.currentUser?.gender != null) {
-            themeProvider.setUserGender(authProvider.currentUser!.gender!);
-          } // Mettre à jour le gender APRÈS le build
+          // ✅ FIX: Mettre à jour le gender SEULEMENT après le build
           final currentGender = authProvider.currentUser?.gender;
           if (currentGender != null &&
               themeProvider.userGender != currentGender) {
+            // ✅ Cette méthode schedule la mise à jour après le build
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              themeProvider.setUserGender(currentGender);
+              if (context.mounted) {
+                themeProvider.setUserGender(currentGender);
+              }
             });
           }
 

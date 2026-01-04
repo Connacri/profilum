@@ -29,13 +29,12 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ✅ CORRECTION : Ne notifier que si la valeur change
+  // ✅ FIX: Version simplifiée - ne notifie que si ça change vraiment
   void setUserGender(String gender) {
+    if (_userGender == gender) return; // ✅ Évite les rebuilds inutiles
+
     _userGender = gender;
-    // Defer the notification until after the build phase
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      notifyListeners();
-    });
+    notifyListeners(); // ✅ Notifie directement (appelé après le build via addPostFrameCallback)
   }
 
   ThemeData getLightTheme() {
@@ -67,8 +66,6 @@ class ThemeProvider extends ChangeNotifier {
         return _getDefaultTheme(true);
     }
   }
-
-  // ... reste du code inchangé (thèmes)
 
   ThemeData _getMaleTheme(bool isDark) {
     final colorScheme = ColorScheme.fromSeed(

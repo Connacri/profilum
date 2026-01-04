@@ -34,8 +34,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   String? _selectedRelationship;
   List<String> _selectedInterests = [];
 
-  // ✨ FIX: État pour désactiver le bouton pendant le traitement
-  bool _isSkipping = false;
+  bool _isSkipping = false; // ✅ Pour bloquer les boutons pendant le traitement
 
   final List<String> _availableInterests = [
     'Sport',
@@ -93,6 +92,8 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   }
 
   void _nextPage() {
+    debugPrint('🔵 _nextPage - current: $_currentPage, total: $_totalPages');
+
     if (_currentPage < _totalPages - 1) {
       _pageController.nextPage(
         duration: const Duration(milliseconds: 300),
@@ -110,19 +111,13 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     }
   }
 
-  // ✨ FIX: Méthode skip améliorée avec logs et gestion d'état
+  // ✅ FIX: Skip avec gestion d'état
   Future<void> _skip() async {
-    // Empêcher les clics multiples
-    if (_isSkipping) {
-      debugPrint('⚠️ Skip already in progress, ignoring...');
-      return;
-    }
-
-    debugPrint('🔵 Skip button clicked');
+    if (_isSkipping) return;
 
     final confirmed = await showDialog<bool>(
       context: context,
-      barrierDismissible: false, // ✨ Empêcher de fermer en cliquant dehors
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Passer pour l\'instant ?'),
         content: const Text(
@@ -131,91 +126,40 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              debugPrint('🔵 Skip cancelled by user');
-              Navigator.pop(ctx, false);
-            },
+            onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Annuler'),
           ),
           FilledButton(
-            onPressed: () {
-              debugPrint('🔵 Skip confirmed by user');
-              Navigator.pop(ctx, true);
-            },
+            onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Passer'),
           ),
         ],
       ),
     );
 
-    if (confirmed != true) {
-      debugPrint('🔵 Skip not confirmed, aborting');
-      return;
-    }
+    if (confirmed != true || !mounted) return;
 
-    if (!mounted) {
-      debugPrint('❌ Widget not mounted, aborting skip');
-      return;
-    }
-
-    // ✨ FIX: Activer l'état de chargement
-    setState(() {
-      _isSkipping = true;
-    });
-
-    debugPrint('🔵 Calling AuthProvider.skipProfileCompletion()...');
+    setState(() => _isSkipping = true);
 
     try {
       final authProvider = context.read<AuthProvider>();
       final success = await authProvider.skipProfileCompletion();
 
-      debugPrint('🔵 Skip result: $success');
-      debugPrint('🔵 New auth status: ${authProvider.status}');
+      debugPrint('Skip result: $success, status: ${authProvider.status}');
 
-      if (!mounted) {
-        debugPrint('❌ Widget not mounted after skip');
-        return;
+      if (!success && mounted) {
+        setState(() => _isSkipping = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Erreur lors du skip'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
-
-      if (success) {
-        debugPrint('✅ Skip successful!');
-        debugPrint('🔵 Router should now redirect to HomeScreen');
-
-        // ✨ FIX: Attendre un frame pour que le router se rebuild
-        await Future.delayed(const Duration(milliseconds: 100));
-
-        // Si on est toujours sur cet écran après 500ms, c'est qu'il y a un problème
-        await Future.delayed(const Duration(milliseconds: 400));
-
-        if (mounted) {
-          debugPrint('⚠️ Still on ProfileCompletionScreen after skip!');
-          debugPrint('   This might indicate a router issue');
-        }
-      } else {
-        debugPrint('❌ Skip failed');
-
-        setState(() {
-          _isSkipping = false;
-        });
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Erreur lors du skip. Veuillez réessayer.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e, stack) {
-      debugPrint('❌ Exception during skip: $e');
-      debugPrint('Stack: $stack');
-
-      setState(() {
-        _isSkipping = false;
-      });
-
+    } catch (e) {
+      debugPrint('Skip error: $e');
       if (mounted) {
+        setState(() => _isSkipping = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
         );
@@ -223,9 +167,17 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     }
   }
 
+  // ✅ FIX CRITIQUE: Complete avec reload de l'AuthProvider
   Future<void> _complete() async {
+    debugPrint('🔵 _complete called');
+
+    if (_isSkipping) return;
+
+    setState(() => _isSkipping = true);
+
     final provider = context.read<ProfileCompletionProvider>();
 
+    // Mettre à jour tous les champs
     provider.updateField('full_name', _nameController.text);
     provider.updateField('bio', _bioController.text);
     provider.updateField('city', _cityController.text);
@@ -239,10 +191,59 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     provider.updateField('relationship_status', _selectedRelationship);
     provider.updateField('interests', _selectedInterests);
 
+    debugPrint('🔵 Saving profile...');
+
     final success = await provider.saveProfile(isSkipped: false);
 
-    if (success && mounted) {
-      debugPrint('✅ Profile completed - router will redirect to home');
+    debugPrint('🔵 Save result: $success');
+
+    if (!mounted) return;
+
+    if (success) {
+      debugPrint('✅ Profile saved successfully');
+
+      // ✅ FIX CRITIQUE: Recharger l'utilisateur dans AuthProvider
+      final authProvider = context.read<AuthProvider>();
+
+      try {
+        debugPrint('🔵 Reloading user from Supabase...');
+        await authProvider.reloadCurrentUser();
+
+        debugPrint('✅ User reloaded - status: ${authProvider.status}');
+        debugPrint(
+          '   Profile completed: ${authProvider.currentUser?.profileCompleted}',
+        );
+
+        // Le router va automatiquement rediriger vers home
+        await Future.delayed(const Duration(milliseconds: 100));
+
+        if (mounted && authProvider.status != AuthStatus.authenticated) {
+          debugPrint('⚠️ Status not authenticated!');
+        }
+      } catch (e, stack) {
+        debugPrint('❌ Error reloading user: $e\n$stack');
+
+        setState(() => _isSkipping = false);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    } else {
+      debugPrint('❌ Save failed');
+
+      setState(() => _isSkipping = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Erreur lors de la sauvegarde'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -256,7 +257,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         elevation: 0,
         automaticallyImplyLeading: false,
         actions: [
-          // ✨ FIX: Désactiver le bouton pendant le traitement
           TextButton.icon(
             onPressed: _isSkipping ? null : _skip,
             icon: _isSkipping
@@ -274,7 +274,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      // ✨ FIX: Empêcher le pop pendant le skip
       body: WillPopScope(
         onWillPop: () async => !_isSkipping,
         child: Column(
@@ -330,9 +329,10 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
               child: PageView(
                 controller: _pageController,
                 physics: _isSkipping
-                    ? const NeverScrollableScrollPhysics() // Bloquer le swipe pendant le skip
+                    ? const NeverScrollableScrollPhysics()
                     : null,
                 onPageChanged: (index) {
+                  debugPrint('🔵 Page changed to: $index');
                   setState(() => _currentPage = index);
                 },
                 children: [
@@ -378,11 +378,20 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: Text(
-                        _currentPage == _totalPages - 1
-                            ? 'Terminer'
-                            : 'Suivant',
-                      ),
+                      child: _isSkipping
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              _currentPage == _totalPages - 1
+                                  ? 'Terminer'
+                                  : 'Suivant',
+                            ),
                     ),
                   ),
                 ],

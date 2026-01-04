@@ -192,6 +192,9 @@ class ProfileCompletionProvider extends ChangeNotifier {
     }
   }
 
+  // lib/providers/profile_completion_provider.dart - SECTION À REMPLACER
+
+  // ✅ FIX: saveProfile avec logs et vérification
   Future<bool> saveProfile({bool isSkipped = false}) async {
     if (_user == null) return false;
 
@@ -202,7 +205,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
     try {
       final uploadedPhotos = <String>[];
 
-      // Upload des photos avec gestion d'erreur
+      // Upload des photos
       for (var i = 0; i < _selectedPhotos.length; i++) {
         debugPrint('📤 Uploading photo ${i + 1}/${_selectedPhotos.length}...');
 
@@ -233,18 +236,22 @@ class ProfileCompletionProvider extends ChangeNotifier {
           await _objectBox.savePhoto(photoEntity);
           _photoEntities.add(photoEntity);
         } else {
-          // Erreur d'upload
           debugPrint('❌ Failed to upload photo ${i + 1}');
-          _errorMessage =
-              'Erreur d\'upload des photos. '
-              'Vérifiez que le bucket "profiles" existe dans Supabase Storage.';
+          _errorMessage = 'Erreur d\'upload des photos';
           _isLoading = false;
           notifyListeners();
           return false;
         }
       }
 
-      // Mise à jour du profil dans Supabase
+      // ✅ Calculer le pourcentage final
+      final finalCompletion = completionPercentage;
+      final isProfileComplete = !isSkipped && finalCompletion == 100;
+
+      debugPrint('📊 Completion percentage: $finalCompletion%');
+      debugPrint('📊 Profile will be marked as complete: $isProfileComplete');
+
+      // ✅ FIX: Mise à jour du profil dans Supabase
       final updateData = {
         'full_name': _user!.fullName,
         'date_of_birth': _user!.dateOfBirth?.toIso8601String(),
@@ -261,24 +268,33 @@ class ProfileCompletionProvider extends ChangeNotifier {
         'instagram_handle': _user!.instagramHandle,
         'spotify_anthem': _user!.spotifyAnthem,
         'photos': uploadedPhotos,
-        'profile_completed': !isSkipped && isComplete,
-        'completion_percentage': completionPercentage,
+        'profile_completed': isProfileComplete, // ✅ IMPORTANT
+        'completion_percentage': finalCompletion,
         'updated_at': DateTime.now().toIso8601String(),
       };
+
+      debugPrint(
+        '📤 Updating Supabase with profile_completed: $isProfileComplete',
+      );
 
       await _supabase
           .from('profiles')
           .update(updateData)
           .eq('id', _user!.userId);
 
-      // Mise à jour locale
+      debugPrint('✅ Supabase updated successfully');
+
+      // ✅ Mise à jour locale
       _user = _user!
         ..photos = uploadedPhotos
-        ..profileCompleted = !isSkipped && isComplete
-        ..completionPercentage = completionPercentage
+        ..profileCompleted =
+            isProfileComplete // ✅ IMPORTANT
+        ..completionPercentage = finalCompletion
         ..updatedAt = DateTime.now();
 
+      debugPrint('💾 Saving to ObjectBox...');
       await _objectBox.saveUser(_user!);
+      debugPrint('✅ ObjectBox updated');
 
       _isLoading = false;
       notifyListeners();
