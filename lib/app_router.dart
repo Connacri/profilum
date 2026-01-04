@@ -1,4 +1,4 @@
-// lib/core/routing/app_router.dart
+// lib/app_router.dart - MODIFICATION simple
 import 'package:flutter/material.dart';
 
 import '../providers/auth_provider.dart';
@@ -7,7 +7,6 @@ import 'screens/admin_dashboard.dart';
 import 'screens/home_screen_complete.dart';
 import 'screens/profile_completion_screen.dart';
 
-// CORRECTION: RouterDelegate<Object> au lieu de RouterDelegate<void>
 class AppRouter extends RouterDelegate<Object>
     with ChangeNotifier, PopNavigatorRouterDelegateMixin<Object> {
   @override
@@ -46,6 +45,7 @@ class AppRouter extends RouterDelegate<Object>
         return [_buildAuthPage(), _buildEmailVerificationPage()];
 
       case AuthStatus.profileIncomplete:
+        // ✨ NOUVEAU: Proposer la completion (avec possibilité de skip)
         return [_buildAuthPage(), _buildProfileCompletionPage()];
 
       case AuthStatus.authenticated:
@@ -131,10 +131,8 @@ class AppRouter extends RouterDelegate<Object>
     return true;
   }
 
-  // CORRECTION: Object au lieu de void
   @override
   Future<void> setNewRoutePath(Object configuration) async {
-    // Pas de deep linking pour l'instant
     return;
   }
 
@@ -145,7 +143,6 @@ class AppRouter extends RouterDelegate<Object>
   }
 }
 
-// CORRECTION: RouteInformationParser<Object>
 class AppRouteInformationParser extends RouteInformationParser<Object> {
   @override
   Future<Object> parseRouteInformation(
@@ -160,9 +157,6 @@ class AppRouteInformationParser extends RouteInformationParser<Object> {
   }
 }
 
-// ============================================
-// EMAIL VERIFICATION SCREEN
-// ============================================
 class EmailVerificationScreen extends StatelessWidget {
   const EmailVerificationScreen({super.key});
 
@@ -193,44 +187,9 @@ class EmailVerificationScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                'Nous avons envoyé un lien de vérification à votre adresse email. Cliquez sur le lien pour activer votre compte.',
+                'Nous avons envoyé un lien de vérification à votre adresse email.',
                 style: theme.textTheme.bodyLarge,
                 textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 32),
-              FilledButton(
-                onPressed: () {},
-                child: const Text('Ouvrir l\'app email'),
-              ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () {},
-                child: const Text('Retour à la connexion'),
-              ),
-              const SizedBox(height: 32),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    const Icon(
-                      Icons.warning_amber,
-                      color: Colors.orange,
-                      size: 32,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Votre compte sera supprimé automatiquement après 30 jours si l\'email n\'est pas vérifié',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.orange[800],
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
               ),
             ],
           ),

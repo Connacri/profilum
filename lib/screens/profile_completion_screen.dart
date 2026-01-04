@@ -1,4 +1,3 @@
-// lib/features/profile/screens/profile_completion_screen.dart
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -35,6 +34,9 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   String? _selectedRelationship;
   List<String> _selectedInterests = [];
 
+  // ✨ FIX: État pour désactiver le bouton pendant le traitement
+  bool _isSkipping = false;
+
   final List<String> _availableInterests = [
     'Sport',
     'Musique',
@@ -61,11 +63,9 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     final user = authProvider.currentUser;
 
     if (user != null) {
-      // Initialisation silencieuse du provider
       final provider = context.read<ProfileCompletionProvider>();
       provider.initialize(user);
 
-      // Pré-remplir les champs UI locaux
       _nameController.text = user.fullName ?? '';
       _bioController.text = user.bio ?? '';
       _cityController.text = user.city ?? '';
@@ -110,20 +110,122 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     }
   }
 
+  // ✨ FIX: Méthode skip améliorée avec logs et gestion d'état
   Future<void> _skip() async {
-    final provider = context.read<ProfileCompletionProvider>();
-    final success = await provider.saveProfile(isSkipped: true);
+    // Empêcher les clics multiples
+    if (_isSkipping) {
+      debugPrint('⚠️ Skip already in progress, ignoring...');
+      return;
+    }
 
-    if (success && mounted) {
-      await provider.scheduleSkipReminder();
-      // Navigation vers home
+    debugPrint('🔵 Skip button clicked');
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false, // ✨ Empêcher de fermer en cliquant dehors
+      builder: (ctx) => AlertDialog(
+        title: const Text('Passer pour l\'instant ?'),
+        content: const Text(
+          'Vous pourrez compléter votre profil plus tard.\n\n'
+          'Note : Un profil complet augmente vos chances de match !',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              debugPrint('🔵 Skip cancelled by user');
+              Navigator.pop(ctx, false);
+            },
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () {
+              debugPrint('🔵 Skip confirmed by user');
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Passer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      debugPrint('🔵 Skip not confirmed, aborting');
+      return;
+    }
+
+    if (!mounted) {
+      debugPrint('❌ Widget not mounted, aborting skip');
+      return;
+    }
+
+    // ✨ FIX: Activer l'état de chargement
+    setState(() {
+      _isSkipping = true;
+    });
+
+    debugPrint('🔵 Calling AuthProvider.skipProfileCompletion()...');
+
+    try {
+      final authProvider = context.read<AuthProvider>();
+      final success = await authProvider.skipProfileCompletion();
+
+      debugPrint('🔵 Skip result: $success');
+      debugPrint('🔵 New auth status: ${authProvider.status}');
+
+      if (!mounted) {
+        debugPrint('❌ Widget not mounted after skip');
+        return;
+      }
+
+      if (success) {
+        debugPrint('✅ Skip successful!');
+        debugPrint('🔵 Router should now redirect to HomeScreen');
+
+        // ✨ FIX: Attendre un frame pour que le router se rebuild
+        await Future.delayed(const Duration(milliseconds: 100));
+
+        // Si on est toujours sur cet écran après 500ms, c'est qu'il y a un problème
+        await Future.delayed(const Duration(milliseconds: 400));
+
+        if (mounted) {
+          debugPrint('⚠️ Still on ProfileCompletionScreen after skip!');
+          debugPrint('   This might indicate a router issue');
+        }
+      } else {
+        debugPrint('❌ Skip failed');
+
+        setState(() {
+          _isSkipping = false;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Erreur lors du skip. Veuillez réessayer.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e, stack) {
+      debugPrint('❌ Exception during skip: $e');
+      debugPrint('Stack: $stack');
+
+      setState(() {
+        _isSkipping = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
   Future<void> _complete() async {
     final provider = context.read<ProfileCompletionProvider>();
 
-    // Sauvegarder tous les champs
     provider.updateField('full_name', _nameController.text);
     provider.updateField('bio', _bioController.text);
     provider.updateField('city', _cityController.text);
@@ -140,7 +242,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     final success = await provider.saveProfile(isSkipped: false);
 
     if (success && mounted) {
-      // Navigation vers home
+      debugPrint('✅ Profile completed - router will redirect to home');
     }
   }
 
@@ -152,125 +254,142 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        automaticallyImplyLeading: false,
         actions: [
-          Consumer<ProfileCompletionProvider>(
-            builder: (context, provider, _) {
-              if (provider.hasMinimumPhotos) {
-                return TextButton(
-                  onPressed: _skip,
-                  child: const Text('Passer'),
-                );
-              }
-              return const SizedBox.shrink();
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Progress Bar
-          Consumer<ProfileCompletionProvider>(
-            builder: (context, provider, _) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 16,
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Complétion du profil',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          '${provider.completionPercentage}%',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: theme.colorScheme.primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: LinearProgressIndicator(
-                        value: provider.completionPercentage / 100,
-                        minHeight: 8,
-                        backgroundColor: theme.colorScheme.surfaceVariant,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          theme.colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-
-          // Pages
-          Expanded(
-            child: PageView(
-              controller: _pageController,
-              onPageChanged: (index) {
-                setState(() => _currentPage = index);
-              },
-              children: [
-                _buildBasicInfoPage(),
-                _buildPhotosPage(),
-                _buildPersonalityPage(),
-                _buildDetailsPage(),
-                _buildInterestsPage(),
-              ],
+          // ✨ FIX: Désactiver le bouton pendant le traitement
+          TextButton.icon(
+            onPressed: _isSkipping ? null : _skip,
+            icon: _isSkipping
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.skip_next),
+            label: Text(_isSkipping ? 'Chargement...' : 'Passer'),
+            style: TextButton.styleFrom(
+              foregroundColor: theme.colorScheme.primary,
             ),
           ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      // ✨ FIX: Empêcher le pop pendant le skip
+      body: WillPopScope(
+        onWillPop: () async => !_isSkipping,
+        child: Column(
+          children: [
+            // Progress Bar
+            Consumer<ProfileCompletionProvider>(
+              builder: (context, provider, _) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 16,
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Complétion du profil',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '${provider.completionPercentage}%',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          value: provider.completionPercentage / 100,
+                          minHeight: 8,
+                          backgroundColor: theme.colorScheme.surfaceVariant,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            theme.colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
 
-          // Navigation Buttons
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Row(
-              children: [
-                if (_currentPage > 0)
+            // Pages
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                physics: _isSkipping
+                    ? const NeverScrollableScrollPhysics() // Bloquer le swipe pendant le skip
+                    : null,
+                onPageChanged: (index) {
+                  setState(() => _currentPage = index);
+                },
+                children: [
+                  _buildBasicInfoPage(),
+                  _buildPhotosPage(),
+                  _buildPersonalityPage(),
+                  _buildDetailsPage(),
+                  _buildInterestsPage(),
+                ],
+              ),
+            ),
+
+            // Navigation Buttons
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Row(
+                children: [
+                  if (_currentPage > 0)
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _isSkipping ? null : _previousPage,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Précédent'),
+                      ),
+                    ),
+                  if (_currentPage > 0) const SizedBox(width: 16),
                   Expanded(
-                    child: OutlinedButton(
-                      onPressed: _previousPage,
-                      style: OutlinedButton.styleFrom(
+                    flex: 2,
+                    child: FilledButton(
+                      onPressed: _isSkipping
+                          ? null
+                          : (_currentPage == _totalPages - 1
+                                ? _complete
+                                : _nextPage),
+                      style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: const Text('Précédent'),
-                    ),
-                  ),
-                if (_currentPage > 0) const SizedBox(width: 16),
-                Expanded(
-                  flex: 2,
-                  child: FilledButton(
-                    onPressed: _currentPage == _totalPages - 1
-                        ? _complete
-                        : _nextPage,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                      child: Text(
+                        _currentPage == _totalPages - 1
+                            ? 'Terminer'
+                            : 'Suivant',
                       ),
                     ),
-                    child: Text(
-                      _currentPage == _totalPages - 1 ? 'Terminer' : 'Suivant',
-                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

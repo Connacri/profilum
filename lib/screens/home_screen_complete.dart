@@ -1,8 +1,10 @@
-// lib/features/home/screens/home_screen.dart
+// lib/screens/home_screen_complete.dart - AVEC BANNIÈRE DE RAPPEL
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
+import 'profile_completion_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String? gender;
@@ -15,9 +17,17 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+  bool _bannerDismissed = false; // ✨ NOUVEAU: Track si bannière fermée
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = context.watch<AuthProvider>();
+    final user = authProvider.currentUser;
+
+    // ✨ NOUVEAU: Vérifier si on doit afficher la bannière
+    final showBanner =
+        user != null && !user.profileCompleted && !_bannerDismissed;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profilum'),
@@ -30,7 +40,15 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: _buildBody(),
+      body: Column(
+        children: [
+          // ✨ NOUVEAU: Bannière de rappel
+          if (showBanner) _buildCompletionBanner(context, user),
+
+          // Contenu principal
+          Expanded(child: _buildBody()),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
@@ -58,6 +76,105 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Profil',
           ),
         ],
+      ),
+    );
+  }
+
+  // ✨ NOUVEAU: Widget de bannière
+  Widget _buildCompletionBanner(BuildContext context, dynamic user) {
+    final theme = Theme.of(context);
+    final completion = user.completionPercentage ?? 0;
+
+    return Material(
+      elevation: 2,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              theme.colorScheme.primaryContainer,
+              theme.colorScheme.secondaryContainer,
+            ],
+          ),
+        ),
+        child: Row(
+          children: [
+            // Icône
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.account_circle,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+
+            const SizedBox(width: 12),
+
+            // Texte
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Profil incomplet ($completion%)',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Complétez votre profil pour maximiser vos matchs !',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onPrimaryContainer.withOpacity(
+                        0.8,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(width: 8),
+
+            // Bouton "Compléter"
+            FilledButton(
+              onPressed: () {
+                // TODO: Navigation vers ProfileCompletionScreen
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ProfileCompletionScreen(),
+                  ),
+                );
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.primary,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+              ),
+              child: const Text('Compléter'),
+            ),
+
+            // Bouton fermer
+            IconButton(
+              icon: const Icon(Icons.close, size: 20),
+              onPressed: () {
+                setState(() => _bannerDismissed = true);
+              },
+              tooltip: 'Fermer',
+              color: theme.colorScheme.onPrimaryContainer,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -260,6 +377,38 @@ class _ProfilePage extends StatelessWidget {
             ),
           ),
 
+          // ✨ NOUVEAU: Indicateur profil incomplet
+          if (user != null && !user.profileCompleted) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.orange),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.warning_amber,
+                    color: Colors.orange,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Profil incomplet (${user.completionPercentage}%)',
+                    style: const TextStyle(
+                      color: Colors.orange,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
           const SizedBox(height: 32),
 
           // Stats Card
@@ -282,6 +431,30 @@ class _ProfilePage extends StatelessWidget {
           ),
 
           const SizedBox(height: 32),
+
+          // ✨ NOUVEAU: Bouton pour compléter le profil si incomplet
+          if (user != null && !user.profileCompleted)
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ProfileCompletionScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.edit),
+              label: const Text('Compléter mon profil'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+              ),
+            ),
+
+          if (user != null && !user.profileCompleted)
+            const SizedBox(height: 16),
 
           // Menu Items
           ListTile(

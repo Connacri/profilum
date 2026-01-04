@@ -1,4 +1,5 @@
-// lib/core/providers/auth_provider.dart
+// lib/providers/auth_provider.dart - FIX pour la navigation après skip
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -15,7 +16,7 @@ enum AuthStatus {
   authenticated,
   unauthenticated,
   emailVerificationPending,
-  profileIncomplete,
+  profileIncomplete, // Profil incomplet mais peut skip
   loading,
   error,
   accountDeleted,
@@ -24,7 +25,6 @@ enum AuthStatus {
 class AuthProvider extends ChangeNotifier {
   final SupabaseClient _supabase;
   final ObjectBoxService _objectBox;
-  //final NetworkService _networkService;
 
   AuthStatus _status = AuthStatus.initial;
   UserEntity? _currentUser;
@@ -37,15 +37,72 @@ class AuthProvider extends ChangeNotifier {
   static const Duration _refreshBuffer = Duration(hours: 1);
   static const Duration _heartbeatInterval = Duration(minutes: 5);
 
-  AuthProvider(this._supabase, this._objectBox /*this._networkService*/) {
+  // Clés SharedPreferences pour le skip
+  static const String _keyProfileSkipped = 'profile_completion_skipped';
+  static const String _keySkippedAt = 'profile_skipped_at';
+  static const String _keyLastReminder = 'last_completion_reminder';
+
+  AuthProvider(this._supabase, this._objectBox) {
     _initAuth();
   }
 
+  // Getters
   AuthStatus get status => _status;
   UserEntity? get currentUser => _currentUser;
   String? get errorMessage => _errorMessage;
-  bool get isAuthenticated => _status == AuthStatus.authenticated;
-  bool get canAccessApp => _currentUser?.profileCompleted ?? false;
+  bool get isAuthenticated =>
+      _status == AuthStatus.authenticated ||
+      _status == AuthStatus.profileIncomplete;
+  bool get canAccessApp => isAuthenticated;
+
+  // Vérifier si l'user a skip la completion
+  Future<bool> hasSkippedCompletion() async {
+    if (_currentUser == null) return false;
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('${_keyProfileSkipped}_${_currentUser!.userId}') ??
+        false;
+  }
+
+  // Obtenir la date du skip
+  Future<DateTime?> getSkippedDate() async {
+    if (_currentUser == null) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final timestamp = prefs.getInt('${_keySkippedAt}_${_currentUser!.userId}');
+    return timestamp != null
+        ? DateTime.fromMillisecondsSinceEpoch(timestamp)
+        : null;
+  }
+
+  // Vérifier si besoin d'un rappel
+  Future<bool> needsCompletionReminder() async {
+    if (_currentUser == null || _currentUser!.profileCompleted) return false;
+
+    final hasSkipped = await hasSkippedCompletion();
+    if (!hasSkipped) return false;
+
+    final prefs = await SharedPreferences.getInstance();
+    final skippedAt = await getSkippedDate();
+    if (skippedAt == null) return false;
+
+    final lastReminder = prefs.getInt(
+      '${_keyLastReminder}_${_currentUser!.userId}',
+    );
+    final timeSinceSkip = DateTime.now().difference(skippedAt);
+
+    if (lastReminder == null && timeSinceSkip.inHours >= 24) {
+      return true;
+    }
+
+    if (lastReminder != null) {
+      final lastReminderDate = DateTime.fromMillisecondsSinceEpoch(
+        lastReminder,
+      );
+      final timeSinceLastReminder = DateTime.now().difference(lastReminderDate);
+      return timeSinceLastReminder.inDays >= 7;
+    }
+
+    return false;
+  }
 
   Future<void> _initAuth() async {
     _status = AuthStatus.loading;
@@ -116,8 +173,6 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ===== SIGNUP =====
-  // lib/providers/auth_provider.dart - VERSION SIMPLE (le trigger marche maintenant)
-
   Future<bool> signUp({
     required String email,
     required String password,
@@ -129,11 +184,6 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // if (!_networkService.isConnected) {
-      //   debugPrint('❌ SIGNUP ERROR: No internet');
-      //   throw Exception('Aucune connexion Internet');
-      // }
-
       debugPrint('🔵 Calling Supabase signUp...');
       final response = await _supabase.auth.signUp(
         email: email,
@@ -146,7 +196,6 @@ class AuthProvider extends ChangeNotifier {
       if (response.user != null) {
         debugPrint('✅ User created: ${response.user!.id}');
 
-        // Attendre que le trigger finisse (max 2 sec)
         await Future.delayed(const Duration(seconds: 2));
 
         debugPrint('🔵 Loading user profile...');
@@ -208,17 +257,6 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // if (!_networkService.isConnected) {
-      //   final cachedUser = await _objectBox.getUserByEmail(email);
-      //   if (cachedUser != null) {
-      //     _currentUser = cachedUser;
-      //     _status = AuthStatus.authenticated;
-      //     notifyListeners();
-      //     return true;
-      //   }
-      //   throw Exception('Aucune connexion Internet');
-      // }
-
       final response = await _supabase.auth.signInWithPassword(
         email: email,
         password: password,
@@ -247,16 +285,68 @@ class AuthProvider extends ChangeNotifier {
   // ===== RESET PASSWORD =====
   Future<bool> resetPassword(String email) async {
     try {
-      // if (!_networkService.isConnected) {
-      //   throw Exception('Aucune connexion Internet');
-      // }
-
       await _supabase.auth.resetPasswordForEmail(email);
       return true;
     } catch (e) {
       _errorMessage = 'Erreur: $e';
       return false;
     }
+  }
+
+  // ✨ FIX: Méthode pour skipper la completion
+  Future<bool> skipProfileCompletion() async {
+    if (_currentUser == null) {
+      debugPrint('❌ Skip failed: No current user');
+      return false;
+    }
+
+    try {
+      debugPrint('🔵 Starting skip process for user: ${_currentUser!.userId}');
+
+      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now();
+
+      // Sauvegarder le skip en local
+      await prefs.setBool(
+        '${_keyProfileSkipped}_${_currentUser!.userId}',
+        true,
+      );
+      await prefs.setInt(
+        '${_keySkippedAt}_${_currentUser!.userId}',
+        now.millisecondsSinceEpoch,
+      );
+
+      debugPrint('✅ Skip saved to SharedPreferences');
+
+      // ✨ FIX: Changer le statut IMMÉDIATEMENT pour débloquer le router
+      _status = AuthStatus.authenticated;
+
+      debugPrint('✅ Status changed to: $_status');
+
+      // ✨ FIX: Notifier AVANT le return pour que le router se rebuild
+      notifyListeners();
+
+      debugPrint('✅ Listeners notified - router should rebuild now');
+
+      return true;
+    } catch (e, stack) {
+      debugPrint('❌ Skip error: $e');
+      debugPrint('Stack: $stack');
+      _errorMessage = 'Erreur lors du skip: $e';
+      return false;
+    }
+  }
+
+  // Marquer qu'un rappel a été envoyé
+  Future<void> markReminderSent() async {
+    if (_currentUser == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      '${_keyLastReminder}_${_currentUser!.userId}',
+      DateTime.now().millisecondsSinceEpoch,
+    );
+    notifyListeners();
   }
 
   // ===== LOGOUT =====
@@ -331,7 +421,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _updateLastActive() async {
-    //  if (_currentUser == null || !_networkService.isConnected) return;
+    if (_currentUser == null) return;
 
     try {
       await _supabase
@@ -344,59 +434,9 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ===== HELPERS =====
-  void _startGracePeriodTimer(String userId) {
-    Timer(const Duration(days: 30), () async {
-      try {
-        final response = await _supabase
-            .from('profiles')
-            .select('created_at')
-            .eq('id', userId)
-            .single();
-
-        if (response != null) {
-          await _supabase.from('profiles').delete().eq('id', userId);
-          await _objectBox.deleteUser(userId);
-        }
-      } catch (e) {
-        debugPrint('Grace period cleanup error: $e');
-      }
-    });
-  }
-
-  Future<bool> _checkEmailExists(String email) async {
-    try {
-      final response = await _supabase
-          .from('profiles')
-          .select('id')
-          .eq('email', email)
-          .single();
-      return response != null;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  Future<void> _createUserProfile(
-    String userId,
-    String email,
-    String? fullName,
-  ) async {
-    final now = DateTime.now();
-    await _supabase.from('profiles').insert({
-      'id': userId,
-      'email': email,
-      'full_name': fullName,
-      'profile_completed': false,
-      'completion_percentage': 0,
-      'role': 'user',
-      'created_at': now.toIso8601String(),
-      'updated_at': now.toIso8601String(),
-    });
-  }
-
   Future<void> _loadUserFromSupabase(String userId) async {
     try {
-      debugPrint('Chargement du profil pour userId: $userId');
+      debugPrint('🔵 Loading profile for userId: $userId');
       final data = await _supabase
           .from('profiles')
           .select()
@@ -404,9 +444,7 @@ class AuthProvider extends ChangeNotifier {
           .single();
 
       if (data == null) {
-        debugPrint(
-          'Aucun profil trouvé pour userId: $userId. Création d\'un profil minimal...',
-        );
+        debugPrint('❌ No profile found for userId: $userId');
         await _createMinimalUserProfile(userId, 'email@inconnu.com', null);
         _errorMessage = 'Profil créé. Veuillez compléter vos informations.';
         _status = AuthStatus.profileIncomplete;
@@ -416,10 +454,15 @@ class AuthProvider extends ChangeNotifier {
 
       _currentUser = _mapToUserEntity(data);
       await _objectBox.saveUser(_currentUser!);
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('has_active_session', true);
-      _determineAuthStatus();
-    } catch (e) {
+
+      debugPrint('✅ User loaded, determining auth status...');
+      await _determineAuthStatus();
+    } catch (e, stack) {
+      debugPrint('❌ Load user error: $e');
+      debugPrint('Stack: $stack');
       _errorMessage = 'Erreur de chargement du profil: $e';
       _status = AuthStatus.error;
       notifyListeners();
@@ -429,29 +472,74 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _loadUserFromLocal(String userId) async {
     _currentUser = await _objectBox.getUser(userId);
-    _determineAuthStatus();
+    await _determineAuthStatus();
   }
 
-  void _determineAuthStatus() {
+  // ✨ FIX: Nouvelle logique pour déterminer le statut
+  Future<void> _determineAuthStatus() async {
+    debugPrint('🔵 Determining auth status...');
+    debugPrint('   - User: ${_currentUser?.email}');
+    debugPrint('   - Profile completed: ${_currentUser?.profileCompleted}');
+
     if (_currentUser == null) {
       _status = AuthStatus.unauthenticated;
-    } else if (!_currentUser!.profileCompleted) {
-      _status = AuthStatus.profileIncomplete;
-    } else {
+      debugPrint('   → Status: unauthenticated (no user)');
+    } else if (_currentUser!.profileCompleted) {
       _status = AuthStatus.authenticated;
-    }
-    notifyListeners();
-  }
+      debugPrint('   → Status: authenticated (profile complete)');
+    } else {
+      // Profil incomplet : vérifier si skip
+      final hasSkipped = await hasSkippedCompletion();
+      debugPrint('   - Has skipped: $hasSkipped');
 
-  Future<void> _saveUnverifiedUser(String userId, String email) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('unverified_user_id', userId);
-    await prefs.setString('unverified_email', email);
+      _status = hasSkipped
+          ? AuthStatus
+                .authenticated // A skip = accès autorisé
+          : AuthStatus.profileIncomplete; // Pas skip = proposer completion
+
+      debugPrint('   → Status: $_status');
+    }
+
+    notifyListeners();
   }
 
   Future<void> _clearLocalSession() async {
     final prefs = await SharedPreferences.getInstance();
+
+    // Garder les infos de skip si présentes
+    final userId = _currentUser?.userId;
+    Map<String, dynamic> skipData = {};
+
+    if (userId != null) {
+      final skipped = prefs.getBool('${_keyProfileSkipped}_$userId');
+      final skippedAt = prefs.getInt('${_keySkippedAt}_$userId');
+      final lastReminder = prefs.getInt('${_keyLastReminder}_$userId');
+
+      if (skipped != null) skipData['skipped'] = skipped;
+      if (skippedAt != null) skipData['skippedAt'] = skippedAt;
+      if (lastReminder != null) skipData['lastReminder'] = lastReminder;
+    }
+
     await prefs.clear();
+
+    // Restaurer les infos de skip
+    if (userId != null && skipData.isNotEmpty) {
+      if (skipData['skipped'] != null) {
+        await prefs.setBool(
+          '${_keyProfileSkipped}_$userId',
+          skipData['skipped'],
+        );
+      }
+      if (skipData['skippedAt'] != null) {
+        await prefs.setInt('${_keySkippedAt}_$userId', skipData['skippedAt']);
+      }
+      if (skipData['lastReminder'] != null) {
+        await prefs.setInt(
+          '${_keyLastReminder}_$userId',
+          skipData['lastReminder'],
+        );
+      }
+    }
   }
 
   UserEntity _mapToUserEntity(Map<String, dynamic> data) {
