@@ -44,6 +44,7 @@ class _ProfilePageState extends State<ProfilePage> {
           SliverAppBar(
             expandedHeight: 300,
             pinned: true,
+            automaticallyImplyLeading: false,
             flexibleSpace: FlexibleSpaceBar(
               background: hasPhotos
                   ? Stack(
@@ -202,7 +203,7 @@ class _ProfilePageState extends State<ProfilePage> {
               children: [
                 // Profile Photo + Info Section
                 Transform.translate(
-                  offset: const Offset(0, -60),
+                  offset: const Offset(0, 20),
                   child: Column(
                     children: [
                       // Profile Photo
@@ -256,9 +257,10 @@ class _ProfilePageState extends State<ProfilePage> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              [user.city, user.country]
-                                  .where((e) => e != null)
-                                  .join(', '),
+                              [
+                                user.city,
+                                user.country,
+                              ].where((e) => e != null).join(', '),
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant,
                               ),
@@ -391,10 +393,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Text(
-                          user.bio!,
-                          style: theme.textTheme.bodyMedium,
-                        ),
+                        Text(user.bio!, style: theme.textTheme.bodyMedium),
                       ],
                     ),
                   ),
@@ -453,7 +452,8 @@ class _ProfilePageState extends State<ProfilePage> {
                                 (interest) => Chip(
                                   label: Text(interest),
                                   backgroundColor: theme
-                                      .colorScheme.primaryContainer
+                                      .colorScheme
+                                      .primaryContainer
                                       .withOpacity(0.5),
                                 ),
                               )
@@ -600,9 +600,7 @@ class _StatItem extends StatelessWidget {
         ),
         Text(
           label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: Colors.grey[600],
-          ),
+          style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
         ),
       ],
     );

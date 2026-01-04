@@ -1,4 +1,8 @@
 // lib/core/database/entities/user_entity.dart
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart'; // Pour debugPrint
+import 'package:flutter/material.dart';
 import 'package:objectbox/objectbox.dart';
 
 @Entity()
@@ -9,32 +13,32 @@ class UserEntity {
   @Unique()
   @Index()
   String userId;
-  
+
   @Index()
   String email;
-  
+
   String? fullName;
-  
+
   @Property(type: PropertyType.date)
   DateTime? dateOfBirth;
-  
-  String? gender; // male, female, mtf, ftm
-  String? lookingFor; // male, female, everyone
+
+  String? gender;
+  String? lookingFor;
   String? bio;
-  
+
   // Liste sérialisée en JSON
-  String photosJson; // List<String> serialized
-  
+  String photosJson;
+
   String? photoUrl;
   String? coverUrl;
-  
+
   bool profileCompleted;
   int completionPercentage;
-  
+
   String? occupation;
-  
-  String interestsJson; // List<String> serialized
-  
+
+  String interestsJson;
+
   int? heightCm;
   String? education;
   String? relationshipStatus;
@@ -42,32 +46,30 @@ class UserEntity {
   String? spotifyAnthem;
   String? city;
   String? country;
-  
+
   double? latitude;
   double? longitude;
-  
+
   @Index()
-  String role; // user, moderator, admin
-  
+  String role;
+
   @Property(type: PropertyType.date)
   DateTime? lastActiveAt;
-  
+
   @Property(type: PropertyType.date)
   DateTime createdAt;
-  
+
   @Property(type: PropertyType.date)
   DateTime updatedAt;
-  
-  // Session management
+
   String? accessToken;
   String? refreshToken;
-  
+
   @Property(type: PropertyType.date)
   DateTime? tokenExpiresAt;
-  
-  // Offline sync
+
   bool needsSync;
-  String pendingActionsJson; // List<String> serialized
+  String pendingActionsJson;
 
   UserEntity({
     required this.userId,
@@ -102,57 +104,77 @@ class UserEntity {
     this.tokenExpiresAt,
     this.needsSync = false,
     String? pendingActionsJson,
-  })  : photosJson = photosJson ?? '[]',
-        interestsJson = interestsJson ?? '[]',
-        pendingActionsJson = pendingActionsJson ?? '[]';
+  }) : photosJson = photosJson ?? '[]',
+       interestsJson = interestsJson ?? '[]',
+       pendingActionsJson = pendingActionsJson ?? '[]';
 
-  // Helpers pour listes
+  // ✅ FIX: GETTER PHOTOS - JSON standard uniquement
   List<String> get photos {
+    if (photosJson.isEmpty || photosJson == '[]') {
+      return [];
+    }
+
     try {
-      return List<String>.from(
-        (photosJson.isEmpty || photosJson == '[]') 
-            ? [] 
-            : Uri.decodeComponent(photosJson).split(',')
-      );
+      final decoded = jsonDecode(photosJson);
+      if (decoded is List) {
+        return List<String>.from(decoded);
+      }
+      return [];
     } catch (e) {
+      debugPrint('❌ Error decoding photos from: $photosJson');
+      debugPrint('   Error: $e');
       return [];
     }
   }
 
+  // ✅ FIX: SETTER PHOTOS - JSON standard uniquement
   set photos(List<String> value) {
-    photosJson = value.isEmpty ? '[]' : Uri.encodeComponent(value.join(','));
+    photosJson = jsonEncode(value);
   }
 
+  // ✅ FIX: GETTER INTERESTS - JSON standard uniquement
   List<String> get interests {
+    if (interestsJson.isEmpty || interestsJson == '[]') {
+      return [];
+    }
+
     try {
-      return List<String>.from(
-        (interestsJson.isEmpty || interestsJson == '[]')
-            ? []
-            : Uri.decodeComponent(interestsJson).split(',')
-      );
+      final decoded = jsonDecode(interestsJson);
+      if (decoded is List) {
+        return List<String>.from(decoded);
+      }
+      return [];
     } catch (e) {
+      debugPrint('❌ Error decoding interests from: $interestsJson');
       return [];
     }
   }
 
+  // ✅ FIX: SETTER INTERESTS - JSON standard uniquement
   set interests(List<String> value) {
-    interestsJson = value.isEmpty ? '[]' : Uri.encodeComponent(value.join(','));
+    interestsJson = jsonEncode(value);
   }
 
+  // ✅ FIX: GETTER PENDING ACTIONS - JSON standard uniquement
   List<String> get pendingActions {
+    if (pendingActionsJson.isEmpty || pendingActionsJson == '[]') {
+      return [];
+    }
+
     try {
-      return List<String>.from(
-        (pendingActionsJson.isEmpty || pendingActionsJson == '[]')
-            ? []
-            : Uri.decodeComponent(pendingActionsJson).split(',')
-      );
+      final decoded = jsonDecode(pendingActionsJson);
+      if (decoded is List) {
+        return List<String>.from(decoded);
+      }
+      return [];
     } catch (e) {
       return [];
     }
   }
 
+  // ✅ FIX: SETTER PENDING ACTIONS - JSON standard uniquement
   set pendingActions(List<String> value) {
-    pendingActionsJson = value.isEmpty ? '[]' : Uri.encodeComponent(value.join(','));
+    pendingActionsJson = jsonEncode(value);
   }
 }
 
@@ -164,27 +186,27 @@ class PhotoEntity {
 
   @Unique()
   String photoId;
-  
+
   @Index()
   String userId;
-  
+
   String localPath;
   String? remotePath;
-  
+
   @Index()
   String status; // pending, approved, rejected
-  
+
   bool hasWatermark;
-  
+
   @Property(type: PropertyType.date)
   DateTime uploadedAt;
-  
+
   @Property(type: PropertyType.date)
   DateTime? moderatedAt;
-  
+
   String? moderatorId;
   String? rejectionReason;
-  
+
   bool isProfilePhoto;
   int displayOrder;
 
@@ -212,26 +234,26 @@ class GroupEntity {
 
   @Unique()
   String groupId;
-  
+
   String name;
   String? description;
   String? photoUrl;
-  
+
   @Index()
   String creatorId;
-  
+
   String memberIdsJson; // List<String> serialized
-  
+
   int memberCount;
-  
+
   @Index()
   String category;
-  
+
   bool isPrivate;
-  
+
   @Property(type: PropertyType.date)
   DateTime createdAt;
-  
+
   @Property(type: PropertyType.date)
   DateTime updatedAt;
 
@@ -254,7 +276,7 @@ class GroupEntity {
       return List<String>.from(
         (memberIdsJson.isEmpty || memberIdsJson == '[]')
             ? []
-            : Uri.decodeComponent(memberIdsJson).split(',')
+            : Uri.decodeComponent(memberIdsJson).split(','),
       );
     } catch (e) {
       return [];
@@ -274,23 +296,23 @@ class NotificationEntity {
 
   @Unique()
   String notificationId;
-  
+
   @Index()
   String userId;
-  
+
   @Index()
   String type; // photo_approved, photo_rejected, profile_reminder, etc.
-  
+
   String title;
   String body;
   String? imageUrl;
   String? actionRoute;
-  
+
   String? metadataJson; // Map<String, dynamic> serialized
-  
+
   @Index()
   bool isRead;
-  
+
   @Property(type: PropertyType.date)
   DateTime createdAt;
 
@@ -330,22 +352,22 @@ class MatchEntity {
 
   @Unique()
   String matchId;
-  
+
   @Index()
   String userId1;
-  
+
   @Index()
   String userId2;
-  
+
   @Index()
   String status; // pending, matched, unmatched
-  
+
   @Property(type: PropertyType.date)
   DateTime createdAt;
-  
+
   @Property(type: PropertyType.date)
   DateTime? matchedAt;
-  
+
   bool user1Liked;
   bool user2Liked;
 
@@ -370,28 +392,28 @@ class MessageEntity {
 
   @Unique()
   String messageId;
-  
+
   @Index()
   String senderId;
-  
+
   @Index()
   String receiverId;
-  
+
   String content;
   String type; // text, image, voice, video
-  
+
   @Index()
   bool isRead;
-  
+
   bool isDelivered;
   bool isSent;
-  
+
   @Property(type: PropertyType.date)
   DateTime createdAt;
-  
+
   @Property(type: PropertyType.date)
   DateTime? readAt;
-  
+
   String? attachmentUrl;
   String? attachmentLocalPath;
 
@@ -420,27 +442,27 @@ class PreferenceEntity {
   @Unique()
   @Index()
   String userId;
-  
+
   // Filtres de découverte
   int minAge;
   int maxAge;
   int maxDistance; // en km
-  
+
   String genderPreferenceJson; // List<String> serialized
-  
+
   bool showOnlyVerified;
   bool showOnlyWithPhotos;
-  
+
   // Notifications
   bool notifyMatches;
   bool notifyMessages;
   bool notifyLikes;
-  
+
   // Privacy
   bool showOnline;
   bool showDistance;
   bool incognitoMode;
-  
+
   @Property(type: PropertyType.date)
   DateTime updatedAt;
 
@@ -466,7 +488,7 @@ class PreferenceEntity {
       return List<String>.from(
         (genderPreferenceJson.isEmpty || genderPreferenceJson == '[]')
             ? []
-            : Uri.decodeComponent(genderPreferenceJson).split(',')
+            : Uri.decodeComponent(genderPreferenceJson).split(','),
       );
     } catch (e) {
       return [];
@@ -474,6 +496,8 @@ class PreferenceEntity {
   }
 
   set genderPreference(List<String> value) {
-    genderPreferenceJson = value.isEmpty ? '[]' : Uri.encodeComponent(value.join(','));
+    genderPreferenceJson = value.isEmpty
+        ? '[]'
+        : Uri.encodeComponent(value.join(','));
   }
 }

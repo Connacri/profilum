@@ -602,6 +602,24 @@ class AuthProvider extends ChangeNotifier {
   }
 
   UserEntity _mapToUserEntity(Map<String, dynamic> data) {
+    // ✅ Helper pour convertir les arrays PostgreSQL
+    String _listToJson(dynamic value) {
+      if (value == null) return '[]';
+      if (value is List) {
+        return jsonEncode(value); // Convertir List -> JSON string
+      }
+      if (value is String) {
+        // Si c'est déjà une string, vérifier si c'est du JSON valide
+        try {
+          jsonDecode(value);
+          return value;
+        } catch (e) {
+          return '[]';
+        }
+      }
+      return '[]';
+    }
+
     return UserEntity(
       userId: data['id'] ?? const Uuid().v4(),
       email: data['email'] ?? '',
@@ -612,13 +630,19 @@ class AuthProvider extends ChangeNotifier {
       gender: data['gender'],
       lookingFor: data['looking_for'],
       bio: data['bio'],
-      photosJson: jsonEncode(data['photos'] ?? []),
+
+      // ✅ FIX: Convertir correctement les arrays PostgreSQL
+      photosJson: _listToJson(data['photos']),
+
       photoUrl: data['photo_url'],
       coverUrl: data['cover_url'],
       profileCompleted: data['profile_completed'] ?? false,
       completionPercentage: data['completion_percentage'] ?? 0,
       occupation: data['occupation'],
-      interestsJson: jsonEncode(data['interests'] ?? []),
+
+      // ✅ FIX: Même chose pour interests
+      interestsJson: _listToJson(data['interests']),
+
       heightCm: data['height_cm'],
       education: data['education'],
       relationshipStatus: data['relationship_status'],
