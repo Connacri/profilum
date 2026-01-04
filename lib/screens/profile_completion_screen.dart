@@ -124,15 +124,11 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
 
       // ⚠️ OPTION 2: Saisie manuelle (par défaut)
       await _showLocationDialog();
-
     } catch (e) {
       debugPrint('Location error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -199,7 +195,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         title: const Text('Passer pour l\'instant ?'),
         content: const Text(
           'Vous pourrez compléter votre profil plus tard.\n\n'
-              'Note : Un profil complet augmente vos chances de match !',
+          'Note : Un profil complet augmente vos chances de match !',
         ),
         actions: [
           TextButton(
@@ -241,8 +237,8 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     }
   }
 
-// lib/screens/profile_completion_screen.dart
-// Remplace la méthode _complete() par celle-ci :
+  // lib/screens/profile_completion_screen.dart
+  // Remplace la méthode _complete() par celle-ci :
 
   Future<void> _complete() async {
     if (_isSkipping) return;
@@ -298,15 +294,15 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         debugPrint('✅ Profile completed successfully');
       } catch (e) {
         setState(() => _isSkipping = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
       }
     } else {
       setState(() => _isSkipping = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Erreur de sauvegarde')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Erreur de sauvegarde')));
     }
   }
 
@@ -324,10 +320,10 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
             onPressed: _isSkipping ? null : _skip,
             icon: _isSkipping
                 ? const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Icon(Icons.skip_next),
             label: Text(_isSkipping ? 'Chargement...' : 'Passer'),
           ),
@@ -420,22 +416,22 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                       onPressed: _isSkipping
                           ? null
                           : (_currentPage == _totalPages - 1
-                          ? _complete
-                          : _nextPage),
+                                ? _complete
+                                : _nextPage),
                       child: _isSkipping
                           ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
                           : Text(
-                        _currentPage == _totalPages - 1
-                            ? 'Terminer'
-                            : 'Suivant',
-                      ),
+                              _currentPage == _totalPages - 1
+                                  ? 'Terminer'
+                                  : 'Suivant',
+                            ),
                     ),
                   ),
                 ],
@@ -455,9 +451,9 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         children: [
           Text(
             'Informations de base',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 24),
 
@@ -560,13 +556,13 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                 onPressed: _isLoadingLocation ? null : _getLocation,
                 icon: _isLoadingLocation
                     ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                     : const Icon(Icons.my_location),
                 tooltip: 'Position actuelle',
               ),
@@ -586,16 +582,16 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         children: [
           Text(
             'Photo de profil',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Text(
             'Choisissez une belle photo pour votre profil',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.grey[600],
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
           ),
           const SizedBox(height: 32),
 
@@ -613,13 +609,12 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                           title: const Text('Prendre une photo'),
                           onTap: () async {
                             Navigator.pop(ctx);
-                            final provider = context.read<
-                                ProfileCompletionProvider,
-                            >();
+                            final provider = context
+                                .read<ProfileCompletionProvider>();
                             final photo = await provider.imageService
                                 .captureFromCamera();
                             if (photo != null) {
-                            setState(() => _profilePhoto = photo);
+                              setState(() => _profilePhoto = photo);
                             }
                           },
                         ),
@@ -628,13 +623,12 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                           title: const Text('Galerie'),
                           onTap: () async {
                             Navigator.pop(ctx);
-                            final provider = context.read<
-                                ProfileCompletionProvider,
-                            >();
+                            final provider = context
+                                .read<ProfileCompletionProvider>();
                             final photo = await provider.imageService
                                 .pickFromGallery();
                             if (photo != null) {
-                            setState(() => _profilePhoto = photo);
+                              setState(() => _profilePhoto = photo);
                             }
                           },
                         ),
@@ -656,26 +650,23 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                 ),
                 child: _profilePhoto != null
                     ? ClipOval(
-                  child: Image.file(
-                    _profilePhoto!,
-                    fit: BoxFit.cover,
-                  ),
-                )
+                        child: Image.file(_profilePhoto!, fit: BoxFit.cover),
+                      )
                     : Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.add_a_photo,
-                      size: 48,
-                      color: Colors.grey[600],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Ajouter une photo',
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.add_a_photo,
+                            size: 48,
+                            color: Colors.grey[600],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Ajouter une photo',
+                            style: TextStyle(color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
               ),
             ),
           ),
@@ -702,9 +693,9 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
               const SizedBox(height: 8),
               Text(
                 'Ajoutez 3 à 6 photos pour votre galerie',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey[600],
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
               ),
               const SizedBox(height: 24),
 
@@ -718,7 +709,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                   childAspectRatio: 0.75,
                 ),
                 itemCount:
-                provider.selectedPhotos.length +
+                    provider.selectedPhotos.length +
                     (provider.selectedPhotos.length < 6 ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (index == provider.selectedPhotos.length) {
@@ -783,10 +774,10 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   }
 
   Widget _buildPhotoCard(
-      File photo,
-      int index,
-      ProfileCompletionProvider provider,
-      ) {
+    File photo,
+    int index,
+    ProfileCompletionProvider provider,
+  ) {
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -815,9 +806,9 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         children: [
           Text(
             'Parlez de vous',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 24),
           TextField(
@@ -845,9 +836,9 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         children: [
           Text(
             'Détails supplémentaires',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 24),
 
@@ -892,7 +883,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
             ),
             items: List.generate(
               100,
-                  (i) => DropdownMenuItem(
+              (i) => DropdownMenuItem(
                 value: 140 + i,
                 child: Text('${140 + i} cm'),
               ),
@@ -943,16 +934,16 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         children: [
           Text(
             'Vos centres d\'intérêt',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Text(
             'Sélectionnez au moins 3 centres d\'intérêt',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.grey[600],
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
           ),
           const SizedBox(height: 24),
 
