@@ -1,8 +1,9 @@
 // lib/providers/profile_completion_provider.dart - REFACTORISÉ
 
+import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -15,6 +16,8 @@ class ProfileCompletionProvider extends ChangeNotifier {
   final SupabaseClient _supabase;
   final ObjectBoxService _objectBox;
   final ImageService _imageService;
+
+  Timer? _calculationTimer;
 
   UserEntity? _user;
 
@@ -49,6 +52,12 @@ class ProfileCompletionProvider extends ChangeNotifier {
     this._imageService,
   );
 
+  @override
+  void dispose() {
+    _calculationTimer?.cancel();
+    super.dispose();
+  }
+
   // Getters
   int get completionPercentage {
     final completed = _completionFields.values.where((v) => v).length;
@@ -74,6 +83,43 @@ class ProfileCompletionProvider extends ChangeNotifier {
   void initialize(UserEntity user) {
     _user = user;
     _updateCompletionFields();
+  }
+
+  // ✅ Calcul async avec debounce
+  void _scheduleCompletionCalculation() {
+    _calculationTimer?.cancel();
+    _calculationTimer = Timer(const Duration(milliseconds: 300), () {
+      _updateCompletionFieldsAsync();
+    });
+  }
+
+  Future<void> _updateCompletionFieldsAsync() async {
+    if (_user == null) return;
+
+    // ✅ Calcul en isolate si computation lourde
+    final result = await compute(_calculateCompletion, _user!);
+
+    _completionFields.addAll(result);
+    notifyListeners();
+  }
+
+  // ✅ Fonction pure pour isolate
+  static Map<String, bool> _calculateCompletion(UserEntity user) {
+    return {
+      'full_name': user.fullName?.isNotEmpty ?? false,
+      'date_of_birth': user.dateOfBirth != null,
+      'gender': user.gender?.isNotEmpty ?? false,
+      'looking_for': user.lookingFor?.isNotEmpty ?? false,
+      'bio': (user.bio?.length ?? 0) >= 50,
+      'city': user.city?.isNotEmpty ?? false,
+      'country': user.country?.isNotEmpty ?? false,
+      'occupation': user.occupation?.isNotEmpty ?? false,
+      'education': user.education?.isNotEmpty ?? false,
+      'height_cm': user.heightCm != null,
+      'relationship_status': user.relationshipStatus?.isNotEmpty ?? false,
+      'interests': user.interests.length >= 3,
+      'social_links': user.socialLinks.isNotEmpty,
+    };
   }
 
   /// Mise à jour des champs de complétion
@@ -142,7 +188,8 @@ class ProfileCompletionProvider extends ChangeNotifier {
         break;
     }
 
-    _updateCompletionFields();
+    // _updateCompletionFields();
+    _scheduleCompletionCalculation(); // ✅ Au lieu de _updateCompletionFields()
     notifyListeners();
   }
 

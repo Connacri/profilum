@@ -1,8 +1,9 @@
-// lib/screens/profile_page_complete.dart
+// lib/screens/profile_page_carousel.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
+import '../services/services.dart';
 import 'profile_completion_screen.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -16,10 +17,51 @@ class _ProfilePageState extends State<ProfilePage> {
   final PageController _carouselController = PageController();
   int _currentPhotoIndex = 0;
 
+  List<String> _photoUrls = [];
+  String? _profilePhotoUrl;
+  bool _isLoadingPhotos = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPhotos();
+  }
+
   @override
   void dispose() {
     _carouselController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadPhotos() async {
+    final authProvider = context.read<AuthProvider>();
+    final objectBox = context.read<ObjectBoxService>();
+    final userId = authProvider.currentUser?.userId;
+
+    if (userId == null) return;
+
+    try {
+      final photos = await objectBox.getUserPhotos(userId);
+      final approved = photos.where((p) => p.status == 'approved').toList();
+      approved.sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+
+      setState(() {
+        _profilePhotoUrl = approved
+            .where((p) => p.type == 'profile')
+            .firstOrNull
+            ?.remotePath;
+
+        _photoUrls = approved
+            .where((p) => p.type == 'gallery' || p.type == 'cover')
+            .map((p) => p.remotePath!)
+            .toList();
+
+        _isLoadingPhotos = false;
+      });
+    } catch (e) {
+      debugPrint('❌ Load photos error: $e');
+      setState(() => _isLoadingPhotos = false);
+    }
   }
 
   @override
@@ -34,166 +76,22 @@ class _ProfilePageState extends State<ProfilePage> {
       );
     }
 
-    final photos = user.photos;
-    final hasPhotos = photos.isNotEmpty;
+    final hasPhotos = _photoUrls.isNotEmpty; // ✅ FIX: Déclarer ici
 
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          // ✨ Cover Photos Carousel
+          // Carousel Header
           SliverAppBar(
             expandedHeight: 300,
             pinned: true,
             automaticallyImplyLeading: false,
             flexibleSpace: FlexibleSpaceBar(
-              background: hasPhotos
-                  ? Stack(
-                      children: [
-                        // Carousel
-                        PageView.builder(
-                          controller: _carouselController,
-                          onPageChanged: (index) {
-                            setState(() => _currentPhotoIndex = index);
-                          },
-                          itemCount: photos.length,
-                          itemBuilder: (context, index) {
-                            return Image.network(
-                              photos[index],
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
-                                color: Colors.grey[300],
-                                child: const Icon(
-                                  Icons.broken_image,
-                                  size: 80,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-
-                        // Gradient overlay
-                        Positioned(
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          child: Container(
-                            height: 150,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.transparent,
-                                  Colors.black.withOpacity(0.7),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        // Photo indicator dots
-                        if (photos.length > 1)
-                          Positioned(
-                            bottom: 16,
-                            left: 0,
-                            right: 0,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: List.generate(
-                                photos.length,
-                                (index) => Container(
-                                  margin: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                  ),
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: _currentPhotoIndex == index
-                                        ? Colors.white
-                                        : Colors.white.withOpacity(0.4),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-
-                        // Navigation arrows
-                        if (photos.length > 1) ...[
-                          Positioned(
-                            left: 8,
-                            top: 0,
-                            bottom: 0,
-                            child: Center(
-                              child: IconButton(
-                                icon: const Icon(
-                                  Icons.chevron_left,
-                                  color: Colors.white,
-                                  size: 32,
-                                ),
-                                onPressed: () {
-                                  if (_currentPhotoIndex > 0) {
-                                    _carouselController.previousPage(
-                                      duration: const Duration(
-                                        milliseconds: 300,
-                                      ),
-                                      curve: Curves.easeInOut,
-                                    );
-                                  }
-                                },
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            right: 8,
-                            top: 0,
-                            bottom: 0,
-                            child: Center(
-                              child: IconButton(
-                                icon: const Icon(
-                                  Icons.chevron_right,
-                                  color: Colors.white,
-                                  size: 32,
-                                ),
-                                onPressed: () {
-                                  if (_currentPhotoIndex < photos.length - 1) {
-                                    _carouselController.nextPage(
-                                      duration: const Duration(
-                                        milliseconds: 300,
-                                      ),
-                                      curve: Curves.easeInOut,
-                                    );
-                                  }
-                                },
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    )
-                  : Container(
-                      color: theme.colorScheme.surfaceVariant,
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.add_photo_alternate,
-                              size: 80,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Aucune photo',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+              background: _isLoadingPhotos
+                  ? const Center(child: CircularProgressIndicator())
+                  : hasPhotos
+                  ? _buildPhotoCarousel()
+                  : _buildNoPhotosPlaceholder(theme),
             ),
           ),
 
@@ -201,12 +99,12 @@ class _ProfilePageState extends State<ProfilePage> {
           SliverToBoxAdapter(
             child: Column(
               children: [
-                // Profile Photo + Info Section
+                // Profile Section
                 Transform.translate(
                   offset: const Offset(0, 20),
                   child: Column(
                     children: [
-                      // Profile Photo
+                      // ✅ Avatar
                       Container(
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
@@ -224,10 +122,10 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                         child: CircleAvatar(
                           radius: 60,
-                          backgroundImage: user.photoUrl != null
-                              ? NetworkImage(user.photoUrl!)
+                          backgroundImage: _profilePhotoUrl != null
+                              ? NetworkImage(_profilePhotoUrl!)
                               : null,
-                          child: user.photoUrl == null
+                          child: _profilePhotoUrl == null
                               ? const Icon(Icons.person, size: 60)
                               : null,
                         ),
@@ -235,7 +133,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
                       const SizedBox(height: 16),
 
-                      // Name
+                      // ✅ Nom
                       Text(
                         user.fullName ?? 'Utilisateur',
                         style: theme.textTheme.headlineSmall?.copyWith(
@@ -245,7 +143,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
                       const SizedBox(height: 4),
 
-                      // Location
+                      // ✅ Location
                       if (user.city != null || user.country != null)
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -270,7 +168,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
                       const SizedBox(height: 8),
 
-                      // Profile completion indicator
+                      // ✅ Badge completion
                       if (!user.profileCompleted)
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -306,7 +204,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
 
-                // ✨ Photo Miniatures
+                // ✅ Miniatures photos (UNE SEULE FOIS)
                 if (hasPhotos)
                   Padding(
                     padding: const EdgeInsets.symmetric(
@@ -317,7 +215,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Photos (${photos.length})',
+                          'Photos (${_photoUrls.length})', // ✅ FIX
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
@@ -327,19 +225,13 @@ class _ProfilePageState extends State<ProfilePage> {
                           height: 80,
                           child: ListView.builder(
                             scrollDirection: Axis.horizontal,
-                            itemCount: photos.length,
+                            itemCount: _photoUrls.length, // ✅ FIX
                             itemBuilder: (context, index) {
                               return GestureDetector(
                                 onTap: () {
                                   setState(() => _currentPhotoIndex = index);
                                   _carouselController.animateToPage(
                                     index,
-                                    duration: const Duration(milliseconds: 300),
-                                    curve: Curves.easeInOut,
-                                  );
-                                  // Scroll to top
-                                  Scrollable.ensureVisible(
-                                    context,
                                     duration: const Duration(milliseconds: 300),
                                     curve: Curves.easeInOut,
                                   );
@@ -359,7 +251,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(6),
                                     child: Image.network(
-                                      photos[index],
+                                      _photoUrls[index], // ✅ FIX
                                       fit: BoxFit.cover,
                                       errorBuilder: (_, __, ___) => Container(
                                         color: Colors.grey[300],
@@ -379,7 +271,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ),
 
-                // Bio Section
+                // Bio
                 if (user.bio != null && user.bio!.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.all(24),
@@ -398,7 +290,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ),
 
-                // Stats Card
+                // Stats
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Card(
@@ -410,14 +302,14 @@ class _ProfilePageState extends State<ProfilePage> {
                           _StatItem(
                             icon: Icons.photo,
                             label: 'Photos',
-                            value: '${photos.length}',
+                            value: '${_photoUrls.length}', // ✅ FIX
                           ),
-                          _StatItem(
+                          const _StatItem(
                             icon: Icons.favorite,
                             label: 'Matches',
                             value: '0',
                           ),
-                          _StatItem(
+                          const _StatItem(
                             icon: Icons.chat,
                             label: 'Messages',
                             value: '0',
@@ -465,7 +357,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
                 const SizedBox(height: 16),
 
-                // Action Buttons
+                // Action Button
                 if (!user.profileCompleted)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -491,28 +383,23 @@ class _ProfilePageState extends State<ProfilePage> {
 
                 const SizedBox(height: 16),
 
-                // Menu Items
+                // Menu
                 ListTile(
                   leading: const Icon(Icons.edit),
                   title: const Text('Modifier le profil'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    // TODO: Navigation vers édition profil
-                  },
+                  onTap: () {},
                 ),
-
                 ListTile(
                   leading: const Icon(Icons.settings),
                   title: const Text('Paramètres'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    // TODO: Navigation vers paramètres
-                  },
+                  onTap: () {},
                 ),
 
                 const SizedBox(height: 16),
 
-                // Logout button
+                // Logout
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: OutlinedButton.icon(
@@ -570,9 +457,153 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
     );
   }
+
+  // ✅ CAROUSEL COMPLET avec gradient + dots + arrows
+  Widget _buildPhotoCarousel() {
+    return Stack(
+      children: [
+        // Photos
+        PageView.builder(
+          controller: _carouselController,
+          onPageChanged: (index) {
+            setState(() => _currentPhotoIndex = index);
+          },
+          itemCount: _photoUrls.length,
+          itemBuilder: (context, index) {
+            return Image.network(
+              _photoUrls[index],
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                color: Colors.grey[300],
+                child: const Icon(
+                  Icons.broken_image,
+                  size: 80,
+                  color: Colors.grey,
+                ),
+              ),
+            );
+          },
+        ),
+
+        // Gradient overlay
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            height: 150,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.transparent, Colors.black.withOpacity(0.7)],
+              ),
+            ),
+          ),
+        ),
+
+        // Dots indicator
+        if (_photoUrls.length > 1)
+          Positioned(
+            bottom: 16,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(
+                _photoUrls.length,
+                (index) => Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _currentPhotoIndex == index
+                        ? Colors.white
+                        : Colors.white.withOpacity(0.4),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        // Navigation arrows
+        if (_photoUrls.length > 1) ...[
+          Positioned(
+            left: 8,
+            top: 0,
+            bottom: 0,
+            child: Center(
+              child: IconButton(
+                icon: const Icon(
+                  Icons.chevron_left,
+                  color: Colors.white,
+                  size: 32,
+                ),
+                onPressed: () {
+                  if (_currentPhotoIndex > 0) {
+                    _carouselController.previousPage(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                    );
+                  }
+                },
+              ),
+            ),
+          ),
+          Positioned(
+            right: 8,
+            top: 0,
+            bottom: 0,
+            child: Center(
+              child: IconButton(
+                icon: const Icon(
+                  Icons.chevron_right,
+                  color: Colors.white,
+                  size: 32,
+                ),
+                onPressed: () {
+                  if (_currentPhotoIndex < _photoUrls.length - 1) {
+                    _carouselController.nextPage(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                    );
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildNoPhotosPlaceholder(ThemeData theme) {
+    return Container(
+      color: theme.colorScheme.surfaceVariant,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.add_photo_alternate,
+              size: 80,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Aucune photo',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-// Helper Widget for Stats
 class _StatItem extends StatelessWidget {
   final IconData icon;
   final String label;

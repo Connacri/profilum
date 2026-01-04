@@ -4,8 +4,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../models/social_link_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/profile_completion_provider.dart';
 import '../services/image_service.dart';
@@ -21,14 +23,17 @@ class ProfileCompletionScreen extends StatefulWidget {
 class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   final _pageController = PageController();
   int _currentPage = 0;
-  final int _totalPages = 6; // ✅ +1 page pour la photo de profil
+  final int _totalPages = 6;
+  late final SupabaseClient _supabase;
 
+  // Controllers
   final _nameController = TextEditingController();
   final _bioController = TextEditingController();
   final _cityController = TextEditingController();
   final _occupationController = TextEditingController();
-  final _instagramController = TextEditingController();
+  final _socialLinkController = TextEditingController();
 
+  // Form data
   String? _selectedGender;
   String? _selectedLookingFor;
   DateTime? _selectedDate;
@@ -36,11 +41,13 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   String? _selectedEducation;
   String? _selectedRelationship;
   List<String> _selectedInterests = [];
+  List<SocialLink> _socialLinks = [];
 
-  // ✨ NOUVEAU: Photo de profil séparée
+  // Photos
   File? _profilePhoto;
-  bool _isLoadingLocation = false;
 
+  // State
+  bool _isLoadingLocation = false;
   bool _isSkipping = false;
 
   final List<String> _availableInterests = [
@@ -64,7 +71,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   @override
   void initState() {
     super.initState();
-
+    _supabase = context.read<SupabaseClient>();
     final authProvider = context.read<AuthProvider>();
     final user = authProvider.currentUser;
 
@@ -72,11 +79,12 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
       final provider = context.read<ProfileCompletionProvider>();
       provider.initialize(user);
 
+      // Charger les données existantes
       _nameController.text = user.fullName ?? '';
       _bioController.text = user.bio ?? '';
       _cityController.text = user.city ?? '';
       _occupationController.text = user.occupation ?? '';
-      _instagramController.text = user.instagramHandle ?? '';
+      _socialLinks = List.from(user.socialLinks);
       _selectedGender = user.gender;
       _selectedLookingFor = user.lookingFor;
       _selectedDate = user.dateOfBirth;
@@ -94,7 +102,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     _bioController.dispose();
     _cityController.dispose();
     _occupationController.dispose();
-    _instagramController.dispose();
+    _socialLinkController.dispose();
     super.dispose();
   }
 
@@ -116,15 +124,10 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     }
   }
 
-  // ✨ NOUVEAU: Récupérer la location automatiquement
   Future<void> _getLocation() async {
     setState(() => _isLoadingLocation = true);
 
     try {
-      // ⚠️ OPTION 1: Avec geolocator (nécessite l'ajout du package)
-      // Voir commentaire ci-dessous pour l'implémentation
-
-      // ⚠️ OPTION 2: Saisie manuelle (par défaut)
       await _showLocationDialog();
     } catch (e) {
       debugPrint('Location error: $e');
@@ -140,7 +143,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     }
   }
 
-  // Dialog pour saisie manuelle de location
   Future<void> _showLocationDialog() async {
     final cityController = TextEditingController(text: _cityController.text);
 
@@ -148,19 +150,12 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Votre localisation'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: cityController,
-              decoration: InputDecoration(
-                labelText: 'Ville',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ],
+        content: TextField(
+          controller: cityController,
+          decoration: InputDecoration(
+            labelText: 'Ville',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
         ),
         actions: [
           TextButton(
@@ -171,7 +166,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
             onPressed: () {
               Navigator.pop(ctx, {
                 'city': cityController.text,
-                'country': 'Algérie', // Par défaut
+                'country': 'Algérie',
               });
             },
             child: const Text('Confirmer'),
@@ -241,20 +236,18 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
 
   Future<void> _complete() async {
     if (_isSkipping) return;
-
     setState(() => _isSkipping = true);
 
     final provider = context.read<ProfileCompletionProvider>();
     final authProvider = context.read<AuthProvider>();
     final userId = authProvider.currentUser!.userId;
 
-    // Mettre à jour tous les champs de base
+    // Mettre à jour les champs (incluant social links)
     provider.updateField('full_name', _nameController.text);
     provider.updateField('bio', _bioController.text);
     provider.updateField('city', _cityController.text);
     provider.updateField('country', 'Algérie');
     provider.updateField('occupation', _occupationController.text);
-    provider.updateField('instagram_handle', _instagramController.text);
     provider.updateField('gender', _selectedGender);
     provider.updateField('looking_for', _selectedLookingFor);
     provider.updateField('date_of_birth', _selectedDate);
@@ -262,64 +255,71 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     provider.updateField('education', _selectedEducation);
     provider.updateField('relationship_status', _selectedRelationship);
     provider.updateField('interests', _selectedInterests);
+    provider.updateField(
+      'social_links',
+      _socialLinks,
+    ); // ✅ Sauvegarder les liens
 
-    // ✅ NOUVEAU: Upload photos avec nouvelle architecture
-    try {
-      // 1️⃣ Upload photo de profil (type = 'profile')
-      if (_profilePhoto != null) {
-        debugPrint('📤 Uploading profile photo...');
-
-        final profileUrl = await provider.imageService.uploadToStorage(
+    // Upload photo de profil
+    if (_profilePhoto != null) {
+      try {
+        final url = await provider.imageService.uploadToStorage(
           imageFile: _profilePhoto!,
           userId: userId,
-          photoType: PhotoType.profile, // ✅ Nouvelle signature
+          photoType: PhotoType.profile,
         );
 
-        if (profileUrl != null) {
-          // ✅ Créer l'entrée dans la table photos
+        if (url != null) {
           await _supabase.from('photos').insert({
             'id': const Uuid().v4(),
             'user_id': userId,
-            'remote_path': profileUrl,
+            'remote_path': url,
             'type': 'profile',
-            'status': 'pending', // ✅ Modération requise
+            'status': 'pending',
             'has_watermark': true,
             'display_order': 0,
             'uploaded_at': DateTime.now().toIso8601String(),
           });
-          debugPrint('✅ Profile photo uploaded and saved to DB');
         }
+      } catch (e) {
+        debugPrint('❌ Profile photo error: $e');
       }
-
-      // 2️⃣ ✅ NOUVEAU: Upload covers (NON IMPLÉMENTÉ DANS L'ANCIEN CODE)
-      // À ajouter si besoin
-
-      // 3️⃣ ✅ NOUVEAU: Upload gallery photos (NON IMPLÉMENTÉ DANS L'ANCIEN CODE)
-      // À ajouter si besoin
-    } catch (e) {
-      debugPrint('❌ Photo upload error: $e');
-      setState(() => _isSkipping = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erreur upload photo: $e')));
-      return;
     }
 
-    // Sauvegarder le profil
+    // Upload gallery photos
+    final galleryPhotos = provider.galleryPhotos;
+    for (var i = 0; i < galleryPhotos.length; i++) {
+      try {
+        final url = await provider.imageService.uploadToStorage(
+          imageFile: galleryPhotos[i],
+          userId: userId,
+          photoType: PhotoType.gallery,
+        );
+
+        if (url != null) {
+          await _supabase.from('photos').insert({
+            'id': const Uuid().v4(),
+            'user_id': userId,
+            'remote_path': url,
+            'type': 'gallery',
+            'status': 'pending',
+            'has_watermark': false,
+            'display_order': i,
+            'uploaded_at': DateTime.now().toIso8601String(),
+          });
+        }
+      } catch (e) {
+        debugPrint('❌ Gallery photo $i error: $e');
+      }
+    }
+
+    // Sauvegarder
     final success = await provider.saveProfile(isSkipped: false);
 
     if (!mounted) return;
 
     if (success) {
-      try {
-        await authProvider.reloadCurrentUser();
-        debugPrint('✅ Profile completed successfully');
-      } catch (e) {
-        setState(() => _isSkipping = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
-      }
+      await authProvider.reloadCurrentUser();
     } else {
       setState(() => _isSkipping = false);
       ScaffoldMessenger.of(
@@ -352,8 +352,8 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: WillPopScope(
-        onWillPop: () async => !_isSkipping,
+      body: PopScope(
+        canPop: !_isSkipping,
         child: Column(
           children: [
             // Progress Bar
@@ -410,8 +410,8 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                 },
                 children: [
                   _buildBasicInfoPage(),
-                  _buildProfilePhotoPage(), // ✨ NOUVEAU
-                  _buildGalleryPhotosPage(), // ✨ MODIFIÉ
+                  _buildProfilePhotoPage(),
+                  _buildGalleryPhotosPage(),
                   _buildPersonalityPage(),
                   _buildDetailsPage(),
                   _buildInterestsPage(),
@@ -477,16 +477,26 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
               context,
             ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
+          const SizedBox(height: 8),
+          Text(
+            'Les champs marqués * sont obligatoires',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+          ),
           const SizedBox(height: 24),
 
           TextField(
             controller: _nameController,
             decoration: InputDecoration(
               labelText: 'Nom complet *',
+              hintText: 'Entrez votre nom',
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
+              prefixIcon: const Icon(Icons.person),
             ),
+            textCapitalization: TextCapitalization.words,
           ),
 
           const SizedBox(height: 16),
@@ -500,6 +510,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                 lastDate: DateTime.now().subtract(
                   const Duration(days: 365 * 18),
                 ),
+                helpText: 'Sélectionnez votre date de naissance',
               );
               if (date != null) {
                 setState(() => _selectedDate = date);
@@ -511,11 +522,15 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
+                prefixIcon: const Icon(Icons.calendar_today),
               ),
               child: Text(
                 _selectedDate != null
                     ? DateFormat('dd/MM/yyyy').format(_selectedDate!)
-                    : 'Sélectionner',
+                    : 'Sélectionner votre date',
+                style: TextStyle(
+                  color: _selectedDate != null ? null : Colors.grey[600],
+                ),
               ),
             ),
           ),
@@ -529,7 +544,9 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
+              prefixIcon: const Icon(Icons.wc),
             ),
+            hint: const Text('Sélectionnez votre genre'),
             items: const [
               DropdownMenuItem(value: 'male', child: Text('Homme')),
               DropdownMenuItem(value: 'female', child: Text('Femme')),
@@ -544,11 +561,13 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
           DropdownButtonFormField<String>(
             value: _selectedLookingFor,
             decoration: InputDecoration(
-              labelText: 'Recherche *',
+              labelText: 'Vous recherchez *',
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
+              prefixIcon: const Icon(Icons.favorite),
             ),
+            hint: const Text('Qui souhaitez-vous rencontrer ?'),
             items: const [
               DropdownMenuItem(value: 'male', child: Text('Hommes')),
               DropdownMenuItem(value: 'female', child: Text('Femmes')),
@@ -559,7 +578,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
 
           const SizedBox(height: 16),
 
-          // ✨ NOUVEAU: Location avec bouton auto
           Row(
             children: [
               Expanded(
@@ -567,10 +585,13 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                   controller: _cityController,
                   decoration: InputDecoration(
                     labelText: 'Ville *',
+                    hintText: 'Ex: Oran',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
+                    prefixIcon: const Icon(Icons.location_city),
                   ),
+                  textCapitalization: TextCapitalization.words,
                 ),
               ),
               const SizedBox(width: 8),
@@ -586,7 +607,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                         ),
                       )
                     : const Icon(Icons.my_location),
-                tooltip: 'Position actuelle',
+                tooltip: 'Détecter ma position',
               ),
             ],
           ),
@@ -595,7 +616,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     );
   }
 
-  // ✨ NOUVEAU: Page photo de profil
   Widget _buildProfilePhotoPage() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -610,7 +630,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Choisissez une belle photo pour votre profil',
+            'Choisissez une photo claire de votre visage',
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
@@ -622,13 +642,41 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
               onTap: () {
                 showModalBottomSheet(
                   context: context,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(20),
+                    ),
+                  ),
                   builder: (ctx) => SafeArea(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        const SizedBox(height: 16),
+                        Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
                         ListTile(
-                          leading: const Icon(Icons.camera_alt),
+                          leading: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.camera_alt,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
                           title: const Text('Prendre une photo'),
+                          subtitle: const Text('Utilisez votre caméra'),
                           onTap: () async {
                             Navigator.pop(ctx);
                             final provider = context
@@ -641,8 +689,21 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                           },
                         ),
                         ListTile(
-                          leading: const Icon(Icons.photo_library),
-                          title: const Text('Galerie'),
+                          leading: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.secondaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.photo_library,
+                              color: Theme.of(context).colorScheme.secondary,
+                            ),
+                          ),
+                          title: const Text('Choisir depuis la galerie'),
+                          subtitle: const Text('Sélectionnez une photo'),
                           onTap: () async {
                             Navigator.pop(ctx);
                             final provider = context
@@ -654,71 +715,162 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                             }
                           },
                         ),
+                        const SizedBox(height: 16),
                       ],
                     ),
                   ),
                 );
               },
-              child: Container(
-                width: 200,
-                height: 200,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.grey[200],
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.primary,
-                    width: 3,
-                  ),
-                ),
-                child: _profilePhoto != null
-                    ? ClipOval(
-                        child: Image.file(_profilePhoto!, fit: BoxFit.cover),
-                      )
-                    : Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.add_a_photo,
-                            size: 48,
-                            color: Colors.grey[600],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Ajouter une photo',
-                            style: TextStyle(color: Colors.grey[600]),
-                          ),
-                        ],
+              child: Stack(
+                children: [
+                  Container(
+                    width: 200,
+                    height: 200,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.grey[200],
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.primary,
+                        width: 3,
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: _profilePhoto != null
+                        ? ClipOval(
+                            child: Image.file(
+                              _profilePhoto!,
+                              fit: BoxFit.cover,
+                            ),
+                          )
+                        : Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.add_a_photo,
+                                size: 48,
+                                color: Colors.grey[600],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Ajouter une photo',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                  if (_profilePhoto != null)
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        padding: const EdgeInsets.all(8),
+                        child: const Icon(
+                          Icons.edit,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
+
+          const SizedBox(height: 24),
+
+          if (_profilePhoto == null)
+            Card(
+              color: Colors.blue[50],
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(Icons.tips_and_updates, color: Colors.blue[700]),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Conseil: Une photo de profil claire augmente vos chances de match de 40%',
+                        style: TextStyle(color: Colors.blue[900], fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  // ✨ MODIFIÉ: Photos de galerie (sans la photo de profil)
   Widget _buildGalleryPhotosPage() {
     return Consumer<ProfileCompletionProvider>(
       builder: (context, provider, _) {
+        final galleryPhotos = provider.galleryPhotos;
+        final canAddMore = galleryPhotos.length < 6;
+
         return SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Photos de galerie',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Photos de galerie',
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Ajoutez 3 à 6 photos',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: galleryPhotos.length >= 3
+                          ? Colors.green[100]
+                          : Colors.orange[100],
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${galleryPhotos.length}/6',
+                      style: TextStyle(
+                        color: galleryPhotos.length >= 3
+                            ? Colors.green[900]
+                            : Colors.orange[900],
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Ajoutez 3 à 6 photos pour votre galerie',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-              ),
+
               const SizedBox(height: 24),
 
               GridView.builder(
@@ -730,21 +882,39 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                   mainAxisSpacing: 12,
                   childAspectRatio: 0.75,
                 ),
-                itemCount:
-                    provider.selectedPhotos.length +
-                    (provider.selectedPhotos.length < 6 ? 1 : 0),
+                itemCount: galleryPhotos.length + (canAddMore ? 1 : 0),
                 itemBuilder: (context, index) {
-                  if (index == provider.selectedPhotos.length) {
-                    return _buildAddPhotoCard(provider);
+                  if (index == galleryPhotos.length) {
+                    return _buildAddPhotoCard();
                   }
-
-                  return _buildPhotoCard(
-                    provider.selectedPhotos[index],
-                    index,
-                    provider,
-                  );
+                  return _buildPhotoCard(galleryPhotos[index], index);
                 },
               ),
+
+              if (galleryPhotos.length < 3) ...[
+                const SizedBox(height: 16),
+                Card(
+                  color: Colors.orange[50],
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.orange[700]),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Minimum 3 photos requises pour continuer',
+                            style: TextStyle(
+                              color: Colors.orange[900],
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         );
@@ -752,54 +922,109 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     );
   }
 
-  Widget _buildAddPhotoCard(ProfileCompletionProvider provider) {
+  Widget _buildAddPhotoCard() {
     return InkWell(
       onTap: () {
         showModalBottomSheet(
           context: context,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
           builder: (ctx) => SafeArea(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                const SizedBox(height: 16),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 ListTile(
-                  leading: const Icon(Icons.camera_alt),
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.camera_alt,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
                   title: const Text('Prendre une photo'),
                   onTap: () {
                     Navigator.pop(ctx);
-                    provider.addPhotosFromCamera();
+                    context.read<ProfileCompletionProvider>().addGalleryPhotos(
+                      fromCamera: true,
+                    );
                   },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.photo_library),
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.photo_library,
+                      color: Theme.of(context).colorScheme.secondary,
+                    ),
+                  ),
                   title: const Text('Galerie'),
                   onTap: () {
                     Navigator.pop(ctx);
-                    provider.addPhotosFromGallery();
+                    context.read<ProfileCompletionProvider>().addGalleryPhotos(
+                      fromCamera: false,
+                    );
                   },
                 ),
+                const SizedBox(height: 16),
               ],
             ),
           ),
         );
       },
+      borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.grey[200],
+          color: Colors.grey[100],
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey[400]!, width: 2),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+            width: 2,
+            style: BorderStyle.solid,
+          ),
         ),
-        child: const Center(
-          child: Icon(Icons.add_a_photo, size: 48, color: Colors.grey),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.add_photo_alternate,
+              size: 40,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Ajouter',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildPhotoCard(
-    File photo,
-    int index,
-    ProfileCompletionProvider provider,
-  ) {
+  Widget _buildPhotoCard(File photo, int index) {
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -810,10 +1035,38 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         Positioned(
           top: 4,
           right: 4,
-          child: IconButton(
-            icon: const Icon(Icons.close, color: Colors.white),
-            style: IconButton.styleFrom(backgroundColor: Colors.black54),
-            onPressed: () => provider.removePhoto(index),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.6),
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white, size: 18),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              onPressed: () => context
+                  .read<ProfileCompletionProvider>()
+                  .removeGalleryPhoto(index),
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: 4,
+          left: 4,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.6),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '${index + 1}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ),
       ],
@@ -832,16 +1085,67 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
               context,
             ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
+          const SizedBox(height: 8),
+          Text(
+            'Présentez-vous en quelques lignes',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+          ),
           const SizedBox(height: 24),
+
           TextField(
             controller: _bioController,
-            maxLines: 5,
+            maxLines: 8,
             maxLength: 500,
             decoration: InputDecoration(
-              labelText: 'Bio (minimum 50 caractères) *',
-              hintText: 'Décrivez-vous en quelques mots...',
+              labelText: 'Bio *',
+              hintText:
+                  'Parlez de vos passions, vos valeurs, ce qui vous rend unique...',
+              helperText: 'Minimum 50 caractères',
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
+              ),
+              alignLabelWithHint: true,
+            ),
+            textCapitalization: TextCapitalization.sentences,
+          ),
+
+          const SizedBox(height: 16),
+
+          Card(
+            color: Colors.blue[50],
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.lightbulb_outline, color: Colors.blue[700]),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Conseils pour une bio réussie',
+                        style: TextStyle(
+                          color: Colors.blue[900],
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '• Soyez authentique et positif\n'
+                    '• Mentionnez vos passions\n'
+                    '• Ajoutez une touche d\'humour\n'
+                    '• Évitez les clichés',
+                    style: TextStyle(
+                      color: Colors.blue[900],
+                      fontSize: 13,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -868,10 +1172,13 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
             controller: _occupationController,
             decoration: InputDecoration(
               labelText: 'Profession *',
+              hintText: 'Ex: Développeur, Médecin...',
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
+              prefixIcon: const Icon(Icons.work),
             ),
+            textCapitalization: TextCapitalization.words,
           ),
 
           const SizedBox(height: 16),
@@ -883,7 +1190,9 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
+              prefixIcon: const Icon(Icons.school),
             ),
+            hint: const Text('Sélectionnez votre niveau'),
             items: const [
               DropdownMenuItem(value: 'high_school', child: Text('Lycée')),
               DropdownMenuItem(value: 'bachelor', child: Text('Licence')),
@@ -902,12 +1211,14 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
+              prefixIcon: const Icon(Icons.height),
             ),
+            hint: const Text('Sélectionnez votre taille'),
             items: List.generate(
-              100,
+              81,
               (i) => DropdownMenuItem(
-                value: 140 + i,
-                child: Text('${140 + i} cm'),
+                value: 150 + i,
+                child: Text('${150 + i} cm'),
               ),
             ),
             onChanged: (value) => setState(() => _selectedHeight = value),
@@ -922,7 +1233,9 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
+              prefixIcon: const Icon(Icons.favorite_border),
             ),
+            hint: const Text('Votre situation actuelle'),
             items: const [
               DropdownMenuItem(value: 'single', child: Text('Célibataire')),
               DropdownMenuItem(value: 'divorced', child: Text('Divorcé(e)')),
@@ -931,21 +1244,243 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
             onChanged: (value) => setState(() => _selectedRelationship = value),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
 
-          TextField(
-            controller: _instagramController,
-            decoration: InputDecoration(
-              labelText: 'Instagram (optionnel)',
-              prefixText: '@',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
+          // Section Réseaux Sociaux
+          _buildSocialLinksSection(),
         ],
       ),
     );
+  }
+
+  Widget _buildSocialLinksSection() {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.share, color: theme.colorScheme.primary, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'Réseaux sociaux',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'Optionnel',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[700],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 8),
+
+        Text(
+          'Format: Plateforme: @username ou URL',
+          style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+        ),
+
+        const SizedBox(height: 12),
+
+        TextField(
+          controller: _socialLinkController,
+          decoration: InputDecoration(
+            hintText: 'Ex: Instagram: @john_doe',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            prefixIcon: const Icon(Icons.add_link),
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.add_circle),
+              color: theme.colorScheme.primary,
+              onPressed: _addSocialLink,
+              tooltip: 'Ajouter',
+            ),
+          ),
+          onSubmitted: (_) => _addSocialLink(),
+          textInputAction: TextInputAction.done,
+        ),
+
+        if (_socialLinks.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _socialLinks.asMap().entries.map((entry) {
+              final index = entry.key;
+              final link = entry.value;
+
+              return Chip(
+                avatar: CircleAvatar(
+                  backgroundColor: Color(SocialLink.getColorHex(link.name)),
+                  child: Icon(
+                    _getSocialIcon(link.name),
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                ),
+                label: Text(
+                  '${link.name}: ${_shortenUrl(link.url)}',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                deleteIcon: const Icon(Icons.close, size: 18),
+                onDeleted: () {
+                  setState(() {
+                    _socialLinks.removeAt(index);
+                  });
+                },
+              );
+            }).toList(),
+          ),
+        ],
+      ],
+    );
+  }
+
+  void _addSocialLink() {
+    final input = _socialLinkController.text.trim();
+
+    if (input.isEmpty) return;
+
+    final parts = input.split(':');
+
+    if (parts.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Format: Plateforme: @username (ex: Instagram: @john)'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final platform = parts[0].trim();
+    final url = parts.sublist(1).join(':').trim();
+
+    if (platform.isEmpty || url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Plateforme et URL requis'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    String normalizedUrl = url;
+    if (!url.startsWith('http')) {
+      if (url.startsWith('@')) {
+        normalizedUrl = _buildPlatformUrl(platform, url.substring(1));
+      } else {
+        normalizedUrl = _buildPlatformUrl(platform, url);
+      }
+    }
+
+    if (_socialLinks.any(
+      (l) => l.name.toLowerCase() == platform.toLowerCase(),
+    )) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$platform déjà ajouté'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _socialLinks.add(SocialLink(name: platform, url: normalizedUrl));
+      _socialLinkController.clear();
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$platform ajouté avec succès'),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 1),
+      ),
+    );
+  }
+
+  String _buildPlatformUrl(String platform, String handle) {
+    final lowerPlatform = platform.toLowerCase();
+
+    switch (lowerPlatform) {
+      case 'instagram':
+        return 'https://instagram.com/$handle';
+      case 'facebook':
+        return 'https://facebook.com/$handle';
+      case 'tiktok':
+        return 'https://tiktok.com/@$handle';
+      case 'twitter':
+      case 'x':
+        return 'https://twitter.com/$handle';
+      case 'linkedin':
+        return 'https://linkedin.com/in/$handle';
+      case 'youtube':
+        return 'https://youtube.com/@$handle';
+      case 'snapchat':
+        return 'https://snapchat.com/add/$handle';
+      case 'spotify':
+        return 'https://open.spotify.com/user/$handle';
+      default:
+        return handle;
+    }
+  }
+
+  String _shortenUrl(String url) {
+    if (url.length <= 25) return url;
+
+    final uri = Uri.tryParse(url);
+    if (uri != null && uri.pathSegments.isNotEmpty) {
+      final lastSegment = uri.pathSegments.last;
+      return '@$lastSegment';
+    }
+
+    return '${url.substring(0, 22)}...';
+  }
+
+  IconData _getSocialIcon(String platform) {
+    final lower = platform.toLowerCase();
+
+    switch (lower) {
+      case 'instagram':
+        return Icons.camera_alt;
+      case 'facebook':
+        return Icons.facebook;
+      case 'tiktok':
+        return Icons.music_note;
+      case 'spotify':
+        return Icons.music_video;
+      case 'linkedin':
+        return Icons.work;
+      case 'twitter':
+      case 'x':
+        return Icons.alternate_email;
+      case 'youtube':
+        return Icons.play_circle;
+      case 'snapchat':
+        return Icons.photo_camera;
+      default:
+        return Icons.link;
+    }
   }
 
   Widget _buildInterestsPage() {
@@ -961,11 +1496,38 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
             ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          Text(
-            'Sélectionnez au moins 3 centres d\'intérêt',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+          Row(
+            children: [
+              Text(
+                'Sélectionnez au moins 3 centres d\'intérêt',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: _selectedInterests.length >= 3
+                      ? Colors.green[100]
+                      : Colors.orange[100],
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '${_selectedInterests.length}/15',
+                  style: TextStyle(
+                    color: _selectedInterests.length >= 3
+                        ? Colors.green[900]
+                        : Colors.orange[900],
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 24),
 
@@ -981,15 +1543,51 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                 onSelected: (selected) {
                   setState(() {
                     if (selected) {
-                      _selectedInterests.add(interest);
+                      if (_selectedInterests.length < 15) {
+                        _selectedInterests.add(interest);
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Maximum 15 centres d\'intérêt'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
                     } else {
                       _selectedInterests.remove(interest);
                     }
                   });
                 },
+                selectedColor: Theme.of(context).colorScheme.primaryContainer,
+                checkmarkColor: Theme.of(context).colorScheme.primary,
               );
             }).toList(),
           ),
+
+          if (_selectedInterests.length < 3) ...[
+            const SizedBox(height: 16),
+            Card(
+              color: Colors.orange[50],
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange[700]),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Sélectionnez au moins 3 centres d\'intérêt',
+                        style: TextStyle(
+                          color: Colors.orange[900],
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
