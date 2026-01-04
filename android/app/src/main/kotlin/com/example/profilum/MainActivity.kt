@@ -1,4 +1,4 @@
-package com.example.profilum
+package com.profilum.all.profilum
 
 import io.flutter.embedding.android.FlutterActivity
 

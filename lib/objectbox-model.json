@@ -306,7 +306,7 @@
     },
     {
       "id": "5:1399498260393424036",
-      "lastPropertyId": "13:4892388847827283425",
+      "lastPropertyId": "14:2314365409751717571",
       "name": "PhotoEntity",
       "properties": [
         {
@@ -372,14 +372,16 @@
           "type": 9
         },
         {
-          "id": "12:5809202638009700931",
-          "name": "isProfilePhoto",
-          "type": 1
-        },
-        {
           "id": "13:4892388847827283425",
           "name": "displayOrder",
           "type": 6
+        },
+        {
+          "id": "14:2314365409751717571",
+          "name": "type",
+          "indexId": "23:2702649130396046579",
+          "type": 9,
+          "flags": 2048
         }
       ],
       "relations": []
@@ -477,7 +479,7 @@
     },
     {
       "id": "7:2542087586750132592",
-      "lastPropertyId": "36:6308341353633730212",
+      "lastPropertyId": "37:1413059307557799339",
       "name": "UserEntity",
       "properties": [
         {
@@ -526,21 +528,6 @@
           "type": 9
         },
         {
-          "id": "9:738783193934131447",
-          "name": "photosJson",
-          "type": 9
-        },
-        {
-          "id": "10:1226735011396612119",
-          "name": "photoUrl",
-          "type": 9
-        },
-        {
-          "id": "11:5095512729598200616",
-          "name": "coverUrl",
-          "type": 9
-        },
-        {
           "id": "12:4419850604041099640",
           "name": "profileCompleted",
           "type": 1
@@ -573,16 +560,6 @@
         {
           "id": "18:490960495187266842",
           "name": "relationshipStatus",
-          "type": 9
-        },
-        {
-          "id": "19:7762687936498378608",
-          "name": "instagramHandle",
-          "type": 9
-        },
-        {
-          "id": "20:7207592120041401552",
-          "name": "spotifyAnthem",
           "type": 9
         },
         {
@@ -653,11 +630,6 @@
           "type": 9
         },
         {
-          "id": "34:3454965775106949629",
-          "name": "photos",
-          "type": 30
-        },
-        {
           "id": "35:773594349407807086",
           "name": "interests",
           "type": 30
@@ -666,20 +638,33 @@
           "id": "36:6308341353633730212",
           "name": "pendingActions",
           "type": 30
+        },
+        {
+          "id": "37:1413059307557799339",
+          "name": "socialLinksJson",
+          "type": 9
         }
       ],
       "relations": []
     }
   ],
   "lastEntityId": "7:2542087586750132592",
-  "lastIndexId": "22:5824882331433998595",
+  "lastIndexId": "23:2702649130396046579",
   "lastRelationId": "0:0",
   "lastSequenceId": "0:0",
   "modelVersion": 5,
   "modelVersionParserMinimum": 5,
   "retiredEntityUids": [],
   "retiredIndexUids": [],
-  "retiredPropertyUids": [],
+  "retiredPropertyUids": [
+    5809202638009700931,
+    738783193934131447,
+    1226735011396612119,
+    5095512729598200616,
+    7762687936498378608,
+    7207592120041401552,
+    3454965775106949629
+  ],
   "retiredRelationUids": [],
   "version": 1
 }

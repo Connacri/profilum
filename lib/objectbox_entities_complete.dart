@@ -1,9 +1,14 @@
-// lib/core/database/entities/user_entity.dart
+// lib/objectbox_entities_complete.dart
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart'; // Pour debugPrint
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:objectbox/objectbox.dart';
+
+import 'models/social_link_model.dart';
+
+// ============================================
+// USER ENTITY - REFACTORISÉ
+// ============================================
 
 @Entity()
 class UserEntity {
@@ -26,24 +31,24 @@ class UserEntity {
   String? lookingFor;
   String? bio;
 
-  // Liste sérialisée en JSON
-  String photosJson;
-
-  String? photoUrl;
-  String? coverUrl;
+  // ❌ SUPPRIMÉ: photosJson, photoUrl, coverUrl
+  // Les photos sont maintenant dans PhotoEntity
 
   bool profileCompleted;
   int completionPercentage;
 
   String? occupation;
 
+  // Intérêts (inchangé)
   String interestsJson;
 
   int? heightCm;
   String? education;
   String? relationshipStatus;
-  String? instagramHandle;
-  String? spotifyAnthem;
+
+  // ✅ NOUVEAU: Social links au lieu de instagram_handle et spotify_anthem
+  String socialLinksJson; // JSON: [{name: "Instagram", url: "..."}]
+
   String? city;
   String? country;
 
@@ -79,9 +84,6 @@ class UserEntity {
     this.gender,
     this.lookingFor,
     this.bio,
-    String? photosJson,
-    this.photoUrl,
-    this.coverUrl,
     this.profileCompleted = false,
     this.completionPercentage = 0,
     this.occupation,
@@ -89,8 +91,7 @@ class UserEntity {
     this.heightCm,
     this.education,
     this.relationshipStatus,
-    this.instagramHandle,
-    this.spotifyAnthem,
+    String? socialLinksJson,
     this.city,
     this.country,
     this.latitude,
@@ -104,81 +105,67 @@ class UserEntity {
     this.tokenExpiresAt,
     this.needsSync = false,
     String? pendingActionsJson,
-  }) : photosJson = photosJson ?? '[]',
-       interestsJson = interestsJson ?? '[]',
+  }) : interestsJson = interestsJson ?? '[]',
+       socialLinksJson = socialLinksJson ?? '[]',
        pendingActionsJson = pendingActionsJson ?? '[]';
 
-  // ✅ FIX: GETTER PHOTOS - JSON standard uniquement
-  List<String> get photos {
-    if (photosJson.isEmpty || photosJson == '[]') {
-      return [];
-    }
-
-    try {
-      final decoded = jsonDecode(photosJson);
-      if (decoded is List) {
-        return List<String>.from(decoded);
-      }
-      return [];
-    } catch (e) {
-      debugPrint('❌ Error decoding photos from: $photosJson');
-      debugPrint('   Error: $e');
-      return [];
-    }
-  }
-
-  // ✅ FIX: SETTER PHOTOS - JSON standard uniquement
-  set photos(List<String> value) {
-    photosJson = jsonEncode(value);
-  }
-
-  // ✅ FIX: GETTER INTERESTS - JSON standard uniquement
+  // ✅ GETTER: Interests
   List<String> get interests {
-    if (interestsJson.isEmpty || interestsJson == '[]') {
-      return [];
-    }
-
+    if (interestsJson.isEmpty || interestsJson == '[]') return [];
     try {
       final decoded = jsonDecode(interestsJson);
-      if (decoded is List) {
-        return List<String>.from(decoded);
-      }
+      if (decoded is List) return List<String>.from(decoded);
       return [];
     } catch (e) {
-      debugPrint('❌ Error decoding interests from: $interestsJson');
+      debugPrint('❌ Error decoding interests: $e');
       return [];
     }
   }
 
-  // ✅ FIX: SETTER INTERESTS - JSON standard uniquement
+  // ✅ SETTER: Interests
   set interests(List<String> value) {
     interestsJson = jsonEncode(value);
   }
 
-  // ✅ FIX: GETTER PENDING ACTIONS - JSON standard uniquement
-  List<String> get pendingActions {
-    if (pendingActionsJson.isEmpty || pendingActionsJson == '[]') {
+  // ✅ NOUVEAU: GETTER Social Links
+  List<SocialLink> get socialLinks {
+    if (socialLinksJson.isEmpty || socialLinksJson == '[]') return [];
+    try {
+      final decoded = jsonDecode(socialLinksJson) as List;
+      return decoded.map((e) => SocialLink.fromJson(e)).toList();
+    } catch (e) {
+      debugPrint('❌ Error decoding social links: $e');
       return [];
     }
+  }
 
+  // ✅ NOUVEAU: SETTER Social Links
+  set socialLinks(List<SocialLink> value) {
+    socialLinksJson = jsonEncode(value.map((e) => e.toJson()).toList());
+  }
+
+  // ✅ GETTER: Pending Actions
+  List<String> get pendingActions {
+    if (pendingActionsJson.isEmpty || pendingActionsJson == '[]') return [];
     try {
       final decoded = jsonDecode(pendingActionsJson);
-      if (decoded is List) {
-        return List<String>.from(decoded);
-      }
+      if (decoded is List) return List<String>.from(decoded);
       return [];
     } catch (e) {
       return [];
     }
   }
 
-  // ✅ FIX: SETTER PENDING ACTIONS - JSON standard uniquement
+  // ✅ SETTER: Pending Actions
   set pendingActions(List<String> value) {
     pendingActionsJson = jsonEncode(value);
   }
 }
 
-// lib/core/database/entities/photo_entity.dart
+// ============================================
+// PHOTO ENTITY - REFACTORISÉ
+// ============================================
+
 @Entity()
 class PhotoEntity {
   @Id()
@@ -189,6 +176,10 @@ class PhotoEntity {
 
   @Index()
   String userId;
+
+  // ✅ NOUVEAU: Type de photo (profile, cover, gallery)
+  @Index()
+  String type; // 'profile', 'cover', 'gallery'
 
   String localPath;
   String? remotePath;
@@ -207,12 +198,13 @@ class PhotoEntity {
   String? moderatorId;
   String? rejectionReason;
 
-  bool isProfilePhoto;
+  // displayOrder est maintenant crucial pour les covers/gallery
   int displayOrder;
 
   PhotoEntity({
     required this.photoId,
     required this.userId,
+    required this.type, // OBLIGATOIRE
     required this.localPath,
     this.remotePath,
     this.status = 'pending',
@@ -221,12 +213,32 @@ class PhotoEntity {
     this.moderatedAt,
     this.moderatorId,
     this.rejectionReason,
-    this.isProfilePhoto = false,
     this.displayOrder = 0,
   });
+
+  // Helper: Est-ce une photo de profil ?
+  bool get isProfilePhoto => type == 'profile';
+
+  // Helper: Est-ce une cover ?
+  bool get isCoverPhoto => type == 'cover';
+
+  // Helper: Est-ce une photo de galerie ?
+  bool get isGalleryPhoto => type == 'gallery';
+
+  // Helper: Photo approuvée ?
+  bool get isApproved => status == 'approved';
+
+  // Helper: Photo en attente ?
+  bool get isPending => status == 'pending';
+
+  // Helper: Photo rejetée ?
+  bool get isRejected => status == 'rejected';
 }
 
-// lib/core/database/entities/group_entity.dart
+// ============================================
+// GROUP ENTITY (inchangé)
+// ============================================
+
 @Entity()
 class GroupEntity {
   @Id()
@@ -242,7 +254,7 @@ class GroupEntity {
   @Index()
   String creatorId;
 
-  String memberIdsJson; // List<String> serialized
+  String memberIdsJson;
 
   int memberCount;
 
@@ -288,7 +300,10 @@ class GroupEntity {
   }
 }
 
-// lib/core/database/entities/notification_entity.dart
+// ============================================
+// NOTIFICATION ENTITY (inchangé)
+// ============================================
+
 @Entity()
 class NotificationEntity {
   @Id()
@@ -301,14 +316,14 @@ class NotificationEntity {
   String userId;
 
   @Index()
-  String type; // photo_approved, photo_rejected, profile_reminder, etc.
+  String type;
 
   String title;
   String body;
   String? imageUrl;
   String? actionRoute;
 
-  String? metadataJson; // Map<String, dynamic> serialized
+  String? metadataJson;
 
   @Index()
   bool isRead;
@@ -332,19 +347,21 @@ class NotificationEntity {
   Map<String, dynamic>? get metadata {
     if (metadataJson == null || metadataJson!.isEmpty) return null;
     try {
-      // Simple parsing - en production utiliser json.decode
-      return {}; // TODO: Implémenter parsing JSON
+      return jsonDecode(metadataJson!) as Map<String, dynamic>;
     } catch (e) {
       return null;
     }
   }
 
   set metadata(Map<String, dynamic>? value) {
-    metadataJson = value?.toString(); // TODO: Utiliser json.encode
+    metadataJson = value != null ? jsonEncode(value) : null;
   }
 }
 
-// lib/core/database/entities/match_entity.dart
+// ============================================
+// MATCH ENTITY (inchangé)
+// ============================================
+
 @Entity()
 class MatchEntity {
   @Id()
@@ -360,7 +377,7 @@ class MatchEntity {
   String userId2;
 
   @Index()
-  String status; // pending, matched, unmatched
+  String status;
 
   @Property(type: PropertyType.date)
   DateTime createdAt;
@@ -383,8 +400,10 @@ class MatchEntity {
   });
 }
 
-// lib/core/database/entities/message_entity.dart
-// Pour la messagerie P2P future
+// ============================================
+// MESSAGE ENTITY (inchangé)
+// ============================================
+
 @Entity()
 class MessageEntity {
   @Id()
@@ -400,7 +419,7 @@ class MessageEntity {
   String receiverId;
 
   String content;
-  String type; // text, image, voice, video
+  String type;
 
   @Index()
   bool isRead;
@@ -433,7 +452,10 @@ class MessageEntity {
   });
 }
 
-// lib/core/database/entities/preference_entity.dart
+// ============================================
+// PREFERENCE ENTITY (inchangé)
+// ============================================
+
 @Entity()
 class PreferenceEntity {
   @Id()
@@ -443,22 +465,19 @@ class PreferenceEntity {
   @Index()
   String userId;
 
-  // Filtres de découverte
   int minAge;
   int maxAge;
-  int maxDistance; // en km
+  int maxDistance;
 
-  String genderPreferenceJson; // List<String> serialized
+  String genderPreferenceJson;
 
   bool showOnlyVerified;
   bool showOnlyWithPhotos;
 
-  // Notifications
   bool notifyMatches;
   bool notifyMessages;
   bool notifyLikes;
 
-  // Privacy
   bool showOnline;
   bool showDistance;
   bool incognitoMode;

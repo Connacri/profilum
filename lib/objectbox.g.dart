@@ -359,7 +359,7 @@ final _entities = <obx_int.ModelEntity>[
   obx_int.ModelEntity(
     id: const obx_int.IdUid(5, 1399498260393424036),
     name: 'PhotoEntity',
-    lastPropertyId: const obx_int.IdUid(13, 4892388847827283425),
+    lastPropertyId: const obx_int.IdUid(14, 2314365409751717571),
     flags: 0,
     properties: <obx_int.ModelProperty>[
       obx_int.ModelProperty(
@@ -432,16 +432,17 @@ final _entities = <obx_int.ModelEntity>[
         flags: 0,
       ),
       obx_int.ModelProperty(
-        id: const obx_int.IdUid(12, 5809202638009700931),
-        name: 'isProfilePhoto',
-        type: 1,
-        flags: 0,
-      ),
-      obx_int.ModelProperty(
         id: const obx_int.IdUid(13, 4892388847827283425),
         name: 'displayOrder',
         type: 6,
         flags: 0,
+      ),
+      obx_int.ModelProperty(
+        id: const obx_int.IdUid(14, 2314365409751717571),
+        name: 'type',
+        type: 9,
+        flags: 2048,
+        indexId: const obx_int.IdUid(23, 2702649130396046579),
       ),
     ],
     relations: <obx_int.ModelRelation>[],
@@ -557,7 +558,7 @@ final _entities = <obx_int.ModelEntity>[
   obx_int.ModelEntity(
     id: const obx_int.IdUid(7, 2542087586750132592),
     name: 'UserEntity',
-    lastPropertyId: const obx_int.IdUid(36, 6308341353633730212),
+    lastPropertyId: const obx_int.IdUid(37, 1413059307557799339),
     flags: 0,
     properties: <obx_int.ModelProperty>[
       obx_int.ModelProperty(
@@ -611,24 +612,6 @@ final _entities = <obx_int.ModelEntity>[
         flags: 0,
       ),
       obx_int.ModelProperty(
-        id: const obx_int.IdUid(9, 738783193934131447),
-        name: 'photosJson',
-        type: 9,
-        flags: 0,
-      ),
-      obx_int.ModelProperty(
-        id: const obx_int.IdUid(10, 1226735011396612119),
-        name: 'photoUrl',
-        type: 9,
-        flags: 0,
-      ),
-      obx_int.ModelProperty(
-        id: const obx_int.IdUid(11, 5095512729598200616),
-        name: 'coverUrl',
-        type: 9,
-        flags: 0,
-      ),
-      obx_int.ModelProperty(
         id: const obx_int.IdUid(12, 4419850604041099640),
         name: 'profileCompleted',
         type: 1,
@@ -667,18 +650,6 @@ final _entities = <obx_int.ModelEntity>[
       obx_int.ModelProperty(
         id: const obx_int.IdUid(18, 490960495187266842),
         name: 'relationshipStatus',
-        type: 9,
-        flags: 0,
-      ),
-      obx_int.ModelProperty(
-        id: const obx_int.IdUid(19, 7762687936498378608),
-        name: 'instagramHandle',
-        type: 9,
-        flags: 0,
-      ),
-      obx_int.ModelProperty(
-        id: const obx_int.IdUid(20, 7207592120041401552),
-        name: 'spotifyAnthem',
         type: 9,
         flags: 0,
       ),
@@ -762,12 +733,6 @@ final _entities = <obx_int.ModelEntity>[
         flags: 0,
       ),
       obx_int.ModelProperty(
-        id: const obx_int.IdUid(34, 3454965775106949629),
-        name: 'photos',
-        type: 30,
-        flags: 0,
-      ),
-      obx_int.ModelProperty(
         id: const obx_int.IdUid(35, 773594349407807086),
         name: 'interests',
         type: 30,
@@ -777,6 +742,12 @@ final _entities = <obx_int.ModelEntity>[
         id: const obx_int.IdUid(36, 6308341353633730212),
         name: 'pendingActions',
         type: 30,
+        flags: 0,
+      ),
+      obx_int.ModelProperty(
+        id: const obx_int.IdUid(37, 1413059307557799339),
+        name: 'socialLinksJson',
+        type: 9,
         flags: 0,
       ),
     ],
@@ -829,12 +800,20 @@ obx_int.ModelDefinition getObjectBoxModel() {
     generatorVersion: obx_int.GeneratorVersion.v2025_12_16,
     entities: _entities,
     lastEntityId: const obx_int.IdUid(7, 2542087586750132592),
-    lastIndexId: const obx_int.IdUid(22, 5824882331433998595),
+    lastIndexId: const obx_int.IdUid(23, 2702649130396046579),
     lastRelationId: const obx_int.IdUid(0, 0),
     lastSequenceId: const obx_int.IdUid(0, 0),
     retiredEntityUids: const [],
     retiredIndexUids: const [],
-    retiredPropertyUids: const [],
+    retiredPropertyUids: const [
+      5809202638009700931,
+      738783193934131447,
+      1226735011396612119,
+      5095512729598200616,
+      7762687936498378608,
+      7207592120041401552,
+      3454965775106949629,
+    ],
     retiredRelationUids: const [],
     modelVersion: 5,
     modelVersionParserMinimum: 5,
@@ -1252,7 +1231,8 @@ obx_int.ModelDefinition getObjectBoxModel() {
         final rejectionReasonOffset = object.rejectionReason == null
             ? null
             : fbb.writeString(object.rejectionReason!);
-        fbb.startTable(14);
+        final typeOffset = fbb.writeString(object.type);
+        fbb.startTable(15);
         fbb.addInt64(0, object.id);
         fbb.addOffset(1, photoIdOffset);
         fbb.addOffset(2, userIdOffset);
@@ -1264,8 +1244,8 @@ obx_int.ModelDefinition getObjectBoxModel() {
         fbb.addInt64(8, object.moderatedAt?.millisecondsSinceEpoch);
         fbb.addOffset(9, moderatorIdOffset);
         fbb.addOffset(10, rejectionReasonOffset);
-        fbb.addBool(11, object.isProfilePhoto);
         fbb.addInt64(12, object.displayOrder);
+        fbb.addOffset(13, typeOffset);
         fbb.finish(fbb.endTable());
         return object.id;
       },
@@ -1283,6 +1263,9 @@ obx_int.ModelDefinition getObjectBoxModel() {
         final userIdParam = const fb.StringReader(
           asciiOptimization: true,
         ).vTableGet(buffer, rootOffset, 8, '');
+        final typeParam = const fb.StringReader(
+          asciiOptimization: true,
+        ).vTableGet(buffer, rootOffset, 30, '');
         final localPathParam = const fb.StringReader(
           asciiOptimization: true,
         ).vTableGet(buffer, rootOffset, 10, '');
@@ -1310,12 +1293,6 @@ obx_int.ModelDefinition getObjectBoxModel() {
         final rejectionReasonParam = const fb.StringReader(
           asciiOptimization: true,
         ).vTableGetNullable(buffer, rootOffset, 24);
-        final isProfilePhotoParam = const fb.BoolReader().vTableGet(
-          buffer,
-          rootOffset,
-          26,
-          false,
-        );
         final displayOrderParam = const fb.Int64Reader().vTableGet(
           buffer,
           rootOffset,
@@ -1325,6 +1302,7 @@ obx_int.ModelDefinition getObjectBoxModel() {
         final object = PhotoEntity(
           photoId: photoIdParam,
           userId: userIdParam,
+          type: typeParam,
           localPath: localPathParam,
           remotePath: remotePathParam,
           status: statusParam,
@@ -1333,7 +1311,6 @@ obx_int.ModelDefinition getObjectBoxModel() {
           moderatedAt: moderatedAtParam,
           moderatorId: moderatorIdParam,
           rejectionReason: rejectionReasonParam,
-          isProfilePhoto: isProfilePhotoParam,
           displayOrder: displayOrderParam,
         )..id = const fb.Int64Reader().vTableGet(buffer, rootOffset, 4, 0);
 
@@ -1503,13 +1480,6 @@ obx_int.ModelDefinition getObjectBoxModel() {
         final bioOffset = object.bio == null
             ? null
             : fbb.writeString(object.bio!);
-        final photosJsonOffset = fbb.writeString(object.photosJson);
-        final photoUrlOffset = object.photoUrl == null
-            ? null
-            : fbb.writeString(object.photoUrl!);
-        final coverUrlOffset = object.coverUrl == null
-            ? null
-            : fbb.writeString(object.coverUrl!);
         final occupationOffset = object.occupation == null
             ? null
             : fbb.writeString(object.occupation!);
@@ -1520,12 +1490,6 @@ obx_int.ModelDefinition getObjectBoxModel() {
         final relationshipStatusOffset = object.relationshipStatus == null
             ? null
             : fbb.writeString(object.relationshipStatus!);
-        final instagramHandleOffset = object.instagramHandle == null
-            ? null
-            : fbb.writeString(object.instagramHandle!);
-        final spotifyAnthemOffset = object.spotifyAnthem == null
-            ? null
-            : fbb.writeString(object.spotifyAnthem!);
         final cityOffset = object.city == null
             ? null
             : fbb.writeString(object.city!);
@@ -1542,16 +1506,14 @@ obx_int.ModelDefinition getObjectBoxModel() {
         final pendingActionsJsonOffset = fbb.writeString(
           object.pendingActionsJson,
         );
-        final photosOffset = fbb.writeList(
-          object.photos.map(fbb.writeString).toList(growable: false),
-        );
         final interestsOffset = fbb.writeList(
           object.interests.map(fbb.writeString).toList(growable: false),
         );
         final pendingActionsOffset = fbb.writeList(
           object.pendingActions.map(fbb.writeString).toList(growable: false),
         );
-        fbb.startTable(37);
+        final socialLinksJsonOffset = fbb.writeString(object.socialLinksJson);
+        fbb.startTable(38);
         fbb.addInt64(0, object.id);
         fbb.addOffset(1, userIdOffset);
         fbb.addOffset(2, emailOffset);
@@ -1560,9 +1522,6 @@ obx_int.ModelDefinition getObjectBoxModel() {
         fbb.addOffset(5, genderOffset);
         fbb.addOffset(6, lookingForOffset);
         fbb.addOffset(7, bioOffset);
-        fbb.addOffset(8, photosJsonOffset);
-        fbb.addOffset(9, photoUrlOffset);
-        fbb.addOffset(10, coverUrlOffset);
         fbb.addBool(11, object.profileCompleted);
         fbb.addInt64(12, object.completionPercentage);
         fbb.addOffset(13, occupationOffset);
@@ -1570,8 +1529,6 @@ obx_int.ModelDefinition getObjectBoxModel() {
         fbb.addInt64(15, object.heightCm);
         fbb.addOffset(16, educationOffset);
         fbb.addOffset(17, relationshipStatusOffset);
-        fbb.addOffset(18, instagramHandleOffset);
-        fbb.addOffset(19, spotifyAnthemOffset);
         fbb.addOffset(20, cityOffset);
         fbb.addOffset(21, countryOffset);
         fbb.addFloat64(22, object.latitude);
@@ -1585,9 +1542,9 @@ obx_int.ModelDefinition getObjectBoxModel() {
         fbb.addInt64(30, object.tokenExpiresAt?.millisecondsSinceEpoch);
         fbb.addBool(31, object.needsSync);
         fbb.addOffset(32, pendingActionsJsonOffset);
-        fbb.addOffset(33, photosOffset);
         fbb.addOffset(34, interestsOffset);
         fbb.addOffset(35, pendingActionsOffset);
+        fbb.addOffset(36, socialLinksJsonOffset);
         fbb.finish(fbb.endTable());
         return object.id;
       },
@@ -1630,15 +1587,6 @@ obx_int.ModelDefinition getObjectBoxModel() {
         final bioParam = const fb.StringReader(
           asciiOptimization: true,
         ).vTableGetNullable(buffer, rootOffset, 18);
-        final photosJsonParam = const fb.StringReader(
-          asciiOptimization: true,
-        ).vTableGet(buffer, rootOffset, 20, '');
-        final photoUrlParam = const fb.StringReader(
-          asciiOptimization: true,
-        ).vTableGetNullable(buffer, rootOffset, 22);
-        final coverUrlParam = const fb.StringReader(
-          asciiOptimization: true,
-        ).vTableGetNullable(buffer, rootOffset, 24);
         final profileCompletedParam = const fb.BoolReader().vTableGet(
           buffer,
           rootOffset,
@@ -1668,12 +1616,9 @@ obx_int.ModelDefinition getObjectBoxModel() {
         final relationshipStatusParam = const fb.StringReader(
           asciiOptimization: true,
         ).vTableGetNullable(buffer, rootOffset, 38);
-        final instagramHandleParam = const fb.StringReader(
+        final socialLinksJsonParam = const fb.StringReader(
           asciiOptimization: true,
-        ).vTableGetNullable(buffer, rootOffset, 40);
-        final spotifyAnthemParam = const fb.StringReader(
-          asciiOptimization: true,
-        ).vTableGetNullable(buffer, rootOffset, 42);
+        ).vTableGet(buffer, rootOffset, 76, '');
         final cityParam = const fb.StringReader(
           asciiOptimization: true,
         ).vTableGetNullable(buffer, rootOffset, 44);
@@ -1729,9 +1674,6 @@ obx_int.ModelDefinition getObjectBoxModel() {
                 gender: genderParam,
                 lookingFor: lookingForParam,
                 bio: bioParam,
-                photosJson: photosJsonParam,
-                photoUrl: photoUrlParam,
-                coverUrl: coverUrlParam,
                 profileCompleted: profileCompletedParam,
                 completionPercentage: completionPercentageParam,
                 occupation: occupationParam,
@@ -1739,8 +1681,7 @@ obx_int.ModelDefinition getObjectBoxModel() {
                 heightCm: heightCmParam,
                 education: educationParam,
                 relationshipStatus: relationshipStatusParam,
-                instagramHandle: instagramHandleParam,
-                spotifyAnthem: spotifyAnthemParam,
+                socialLinksJson: socialLinksJsonParam,
                 city: cityParam,
                 country: countryParam,
                 latitude: latitudeParam,
@@ -1756,10 +1697,6 @@ obx_int.ModelDefinition getObjectBoxModel() {
                 pendingActionsJson: pendingActionsJsonParam,
               )
               ..id = const fb.Int64Reader().vTableGet(buffer, rootOffset, 4, 0)
-              ..photos = const fb.ListReader<String>(
-                fb.StringReader(asciiOptimization: true),
-                lazy: false,
-              ).vTableGet(buffer, rootOffset, 70, [])
               ..interests = const fb.ListReader<String>(
                 fb.StringReader(asciiOptimization: true),
                 lazy: false,
@@ -2076,13 +2013,13 @@ class PhotoEntity_ {
     _entities[4].properties[10],
   );
 
-  /// See [PhotoEntity.isProfilePhoto].
-  static final isProfilePhoto = obx.QueryBooleanProperty<PhotoEntity>(
+  /// See [PhotoEntity.displayOrder].
+  static final displayOrder = obx.QueryIntegerProperty<PhotoEntity>(
     _entities[4].properties[11],
   );
 
-  /// See [PhotoEntity.displayOrder].
-  static final displayOrder = obx.QueryIntegerProperty<PhotoEntity>(
+  /// See [PhotoEntity.type].
+  static final type = obx.QueryStringProperty<PhotoEntity>(
     _entities[4].properties[12],
   );
 }
@@ -2213,143 +2150,118 @@ class UserEntity_ {
     _entities[6].properties[7],
   );
 
-  /// See [UserEntity.photosJson].
-  static final photosJson = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[8],
-  );
-
-  /// See [UserEntity.photoUrl].
-  static final photoUrl = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[9],
-  );
-
-  /// See [UserEntity.coverUrl].
-  static final coverUrl = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[10],
-  );
-
   /// See [UserEntity.profileCompleted].
   static final profileCompleted = obx.QueryBooleanProperty<UserEntity>(
-    _entities[6].properties[11],
+    _entities[6].properties[8],
   );
 
   /// See [UserEntity.completionPercentage].
   static final completionPercentage = obx.QueryIntegerProperty<UserEntity>(
-    _entities[6].properties[12],
+    _entities[6].properties[9],
   );
 
   /// See [UserEntity.occupation].
   static final occupation = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[13],
+    _entities[6].properties[10],
   );
 
   /// See [UserEntity.interestsJson].
   static final interestsJson = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[14],
+    _entities[6].properties[11],
   );
 
   /// See [UserEntity.heightCm].
   static final heightCm = obx.QueryIntegerProperty<UserEntity>(
-    _entities[6].properties[15],
+    _entities[6].properties[12],
   );
 
   /// See [UserEntity.education].
   static final education = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[16],
+    _entities[6].properties[13],
   );
 
   /// See [UserEntity.relationshipStatus].
   static final relationshipStatus = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[17],
-  );
-
-  /// See [UserEntity.instagramHandle].
-  static final instagramHandle = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[18],
-  );
-
-  /// See [UserEntity.spotifyAnthem].
-  static final spotifyAnthem = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[19],
+    _entities[6].properties[14],
   );
 
   /// See [UserEntity.city].
   static final city = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[20],
+    _entities[6].properties[15],
   );
 
   /// See [UserEntity.country].
   static final country = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[21],
+    _entities[6].properties[16],
   );
 
   /// See [UserEntity.latitude].
   static final latitude = obx.QueryDoubleProperty<UserEntity>(
-    _entities[6].properties[22],
+    _entities[6].properties[17],
   );
 
   /// See [UserEntity.longitude].
   static final longitude = obx.QueryDoubleProperty<UserEntity>(
-    _entities[6].properties[23],
+    _entities[6].properties[18],
   );
 
   /// See [UserEntity.role].
   static final role = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[24],
+    _entities[6].properties[19],
   );
 
   /// See [UserEntity.lastActiveAt].
   static final lastActiveAt = obx.QueryDateProperty<UserEntity>(
-    _entities[6].properties[25],
+    _entities[6].properties[20],
   );
 
   /// See [UserEntity.createdAt].
   static final createdAt = obx.QueryDateProperty<UserEntity>(
-    _entities[6].properties[26],
+    _entities[6].properties[21],
   );
 
   /// See [UserEntity.updatedAt].
   static final updatedAt = obx.QueryDateProperty<UserEntity>(
-    _entities[6].properties[27],
+    _entities[6].properties[22],
   );
 
   /// See [UserEntity.accessToken].
   static final accessToken = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[28],
+    _entities[6].properties[23],
   );
 
   /// See [UserEntity.refreshToken].
   static final refreshToken = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[29],
+    _entities[6].properties[24],
   );
 
   /// See [UserEntity.tokenExpiresAt].
   static final tokenExpiresAt = obx.QueryDateProperty<UserEntity>(
-    _entities[6].properties[30],
+    _entities[6].properties[25],
   );
 
   /// See [UserEntity.needsSync].
   static final needsSync = obx.QueryBooleanProperty<UserEntity>(
-    _entities[6].properties[31],
+    _entities[6].properties[26],
   );
 
   /// See [UserEntity.pendingActionsJson].
   static final pendingActionsJson = obx.QueryStringProperty<UserEntity>(
-    _entities[6].properties[32],
-  );
-
-  /// See [UserEntity.photos].
-  static final photos = obx.QueryStringVectorProperty<UserEntity>(
-    _entities[6].properties[33],
+    _entities[6].properties[27],
   );
 
   /// See [UserEntity.interests].
   static final interests = obx.QueryStringVectorProperty<UserEntity>(
-    _entities[6].properties[34],
+    _entities[6].properties[28],
   );
 
   /// See [UserEntity.pendingActions].
   static final pendingActions = obx.QueryStringVectorProperty<UserEntity>(
-    _entities[6].properties[35],
+    _entities[6].properties[29],
+  );
+
+  /// See [UserEntity.socialLinksJson].
+  static final socialLinksJson = obx.QueryStringProperty<UserEntity>(
+    _entities[6].properties[30],
   );
 }
