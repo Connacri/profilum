@@ -133,6 +133,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       debugPrint('🔵 Loading profile for userId: $userId');
 
+      // 1️⃣ Charger le profil
       final data = await _supabase
           .from('profiles')
           .select()
@@ -149,11 +150,10 @@ class AuthProvider extends ChangeNotifier {
       }
 
       debugPrint('✅ Profile data loaded from Supabase');
-      debugPrint('   Email: ${data['email']}');
-      debugPrint('   Profile completed: ${data['profile_completed']}');
-      debugPrint('   Completion %: ${data['completion_percentage']}');
-
       _currentUser = _mapToUserEntity(data);
+
+      // 2️⃣ ✅ NOUVEAU: Charger les photos depuis la table `photos`
+      await _loadUserPhotos(userId);
 
       debugPrint('💾 Saving to ObjectBox...');
       await _objectBox.saveUser(_currentUser!);
@@ -173,6 +173,47 @@ class AuthProvider extends ChangeNotifier {
       _status = AuthStatus.error;
       notifyListeners();
       rethrow;
+    }
+  }
+
+  // 🆕 NOUVELLE MÉTHODE: Charger les photos depuis la table photos
+  Future<void> _loadUserPhotos(String userId) async {
+    try {
+      final photos = await _supabase
+          .from('photos')
+          .select()
+          .eq('user_id', userId)
+          .eq('status', 'approved') // ✅ Seulement les photos approuvées
+          .order('display_order', ascending: true);
+
+      debugPrint('📸 Loaded ${photos.length} photos');
+
+      // Sauvegarder chaque photo dans ObjectBox
+      for (final photoData in photos) {
+        final photoEntity = PhotoEntity(
+          photoId: photoData['id'],
+          userId: userId,
+          type: photoData['type'],
+          localPath: '', // Pas de path local pour les photos distantes
+          remotePath: photoData['remote_path'],
+          status: photoData['status'],
+          hasWatermark: photoData['has_watermark'] ?? false,
+          uploadedAt: DateTime.parse(photoData['uploaded_at']),
+          moderatedAt: photoData['moderated_at'] != null
+              ? DateTime.parse(photoData['moderated_at'])
+              : null,
+          moderatorId: photoData['moderator_id'],
+          rejectionReason: photoData['rejection_reason'],
+          displayOrder: photoData['display_order'],
+        );
+
+        await _objectBox.savePhoto(photoEntity);
+      }
+
+      debugPrint('✅ Photos saved to ObjectBox');
+    } catch (e) {
+      debugPrint('⚠️ Error loading photos: $e');
+      // Ne pas bloquer le chargement du profil si les photos échouent
     }
   }
 
@@ -602,14 +643,10 @@ class AuthProvider extends ChangeNotifier {
   }
 
   UserEntity _mapToUserEntity(Map<String, dynamic> data) {
-    // ✅ Helper pour convertir les arrays PostgreSQL
     String _listToJson(dynamic value) {
       if (value == null) return '[]';
-      if (value is List) {
-        return jsonEncode(value); // Convertir List -> JSON string
-      }
+      if (value is List) return jsonEncode(value);
       if (value is String) {
-        // Si c'est déjà une string, vérifier si c'est du JSON valide
         try {
           jsonDecode(value);
           return value;
@@ -631,23 +668,20 @@ class AuthProvider extends ChangeNotifier {
       lookingFor: data['looking_for'],
       bio: data['bio'],
 
-      // ✅ FIX: Convertir correctement les arrays PostgreSQL
-      photosJson: _listToJson(data['photos']),
-
-      photoUrl: data['photo_url'],
-      coverUrl: data['cover_url'],
+      // ✅ SUPPRIMÉ: photosJson, photoUrl, coverUrl
       profileCompleted: data['profile_completed'] ?? false,
       completionPercentage: data['completion_percentage'] ?? 0,
       occupation: data['occupation'],
-
-      // ✅ FIX: Même chose pour interests
       interestsJson: _listToJson(data['interests']),
-
       heightCm: data['height_cm'],
       education: data['education'],
       relationshipStatus: data['relationship_status'],
-      instagramHandle: data['instagram_handle'],
-      spotifyAnthem: data['spotify_anthem'],
+
+      // ✅ NOUVEAU: Social links depuis JSONB
+      socialLinksJson: data['social_links'] != null
+          ? jsonEncode(data['social_links'])
+          : '[]',
+
       city: data['city'],
       country: data['country'],
       latitude: data['latitude']?.toDouble(),

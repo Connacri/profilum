@@ -4,9 +4,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../providers/auth_provider.dart';
 import '../providers/profile_completion_provider.dart';
+import '../services/image_service.dart';
 
 class ProfileCompletionScreen extends StatefulWidget {
   const ProfileCompletionScreen({super.key});
@@ -237,17 +239,16 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     }
   }
 
-  // lib/screens/profile_completion_screen.dart
-  // Remplace la méthode _complete() par celle-ci :
-
   Future<void> _complete() async {
     if (_isSkipping) return;
 
     setState(() => _isSkipping = true);
 
     final provider = context.read<ProfileCompletionProvider>();
+    final authProvider = context.read<AuthProvider>();
+    final userId = authProvider.currentUser!.userId;
 
-    // Mettre à jour tous les champs
+    // Mettre à jour tous les champs de base
     provider.updateField('full_name', _nameController.text);
     provider.updateField('bio', _bioController.text);
     provider.updateField('city', _cityController.text);
@@ -262,33 +263,54 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     provider.updateField('relationship_status', _selectedRelationship);
     provider.updateField('interests', _selectedInterests);
 
-    // ✅ NOUVEAU: Upload de la photo de profil si présente
-    String? profilePhotoUrl;
-    if (_profilePhoto != null) {
-      debugPrint('📤 Uploading profile photo...');
+    // ✅ NOUVEAU: Upload photos avec nouvelle architecture
+    try {
+      // 1️⃣ Upload photo de profil (type = 'profile')
+      if (_profilePhoto != null) {
+        debugPrint('📤 Uploading profile photo...');
 
-      profilePhotoUrl = await provider.imageService.uploadToStorage(
-        imageFile: _profilePhoto!,
-        userId: context.read<AuthProvider>().currentUser!.userId,
-        bucket: 'profiles',
-        folder: 'avatar',
-      );
+        final profileUrl = await provider.imageService.uploadToStorage(
+          imageFile: _profilePhoto!,
+          userId: userId,
+          photoType: PhotoType.profile, // ✅ Nouvelle signature
+        );
 
-      if (profilePhotoUrl != null) {
-        debugPrint('✅ Profile photo uploaded: $profilePhotoUrl');
-        provider.updateField('photo_url', profilePhotoUrl);
-      } else {
-        debugPrint('❌ Failed to upload profile photo');
+        if (profileUrl != null) {
+          // ✅ Créer l'entrée dans la table photos
+          await _supabase.from('photos').insert({
+            'id': const Uuid().v4(),
+            'user_id': userId,
+            'remote_path': profileUrl,
+            'type': 'profile',
+            'status': 'pending', // ✅ Modération requise
+            'has_watermark': true,
+            'display_order': 0,
+            'uploaded_at': DateTime.now().toIso8601String(),
+          });
+          debugPrint('✅ Profile photo uploaded and saved to DB');
+        }
       }
+
+      // 2️⃣ ✅ NOUVEAU: Upload covers (NON IMPLÉMENTÉ DANS L'ANCIEN CODE)
+      // À ajouter si besoin
+
+      // 3️⃣ ✅ NOUVEAU: Upload gallery photos (NON IMPLÉMENTÉ DANS L'ANCIEN CODE)
+      // À ajouter si besoin
+    } catch (e) {
+      debugPrint('❌ Photo upload error: $e');
+      setState(() => _isSkipping = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erreur upload photo: $e')));
+      return;
     }
 
+    // Sauvegarder le profil
     final success = await provider.saveProfile(isSkipped: false);
 
     if (!mounted) return;
 
     if (success) {
-      final authProvider = context.read<AuthProvider>();
-
       try {
         await authProvider.reloadCurrentUser();
         debugPrint('✅ Profile completed successfully');
