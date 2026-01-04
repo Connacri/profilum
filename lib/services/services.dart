@@ -1,8 +1,5 @@
 import 'dart:async';
-import 'dart:io';
 
-import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -10,81 +7,81 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../objectbox.g.dart'; // IMPORTANT: Import généré
 import '../objectbox_entities_complete.dart';
 
-class NetworkService extends ChangeNotifier {
-  bool _isConnected = true;
-  final Connectivity _connectivity = Connectivity();
-  StreamSubscription<List<ConnectivityResult>>? _subscription;
-  Timer? _pollTimer;
-
-  bool get isConnected => _isConnected;
-
-  NetworkService() {
-    _initConnectivity();
-  }
-
-  Future<void> _initConnectivity() async {
-    try {
-      final results = await _connectivity.checkConnectivity();
-      _updateConnectionStatus(results);
-
-      // Sur Windows/Linux Desktop : Polling au lieu de stream
-      if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
-        debugPrint('NetworkService: Using polling for Windows/Linux');
-        _startPolling();
-      } else {
-        // Android/iOS/Web/macOS : Stream classique
-        _subscription = _connectivity.onConnectivityChanged.listen(
-          _updateConnectionStatus,
-          onError: (e) => debugPrint('Connectivity stream error: $e'),
-        );
-      }
-    } catch (e) {
-      debugPrint('NetworkService init error: $e');
-      _isConnected = true; // Assume connected on error
-    }
-  }
-
-  /// Polling pour Windows Desktop (évite le bug du stream)
-  void _startPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
-      try {
-        final results = await _connectivity.checkConnectivity();
-        _updateConnectionStatus(results);
-      } catch (e) {
-        debugPrint('Connectivity poll error: $e');
-      }
-    });
-  }
-
-  void _updateConnectionStatus(List<ConnectivityResult> results) {
-    final wasConnected = _isConnected;
-    _isConnected =
-        results.isNotEmpty && results.any((r) => r != ConnectivityResult.none);
-
-    if (wasConnected != _isConnected) {
-      debugPrint('NetworkService: $_isConnected');
-      notifyListeners();
-    }
-  }
-
-  Future<bool> checkConnectivity() async {
-    try {
-      final results = await _connectivity.checkConnectivity();
-      _updateConnectionStatus(results);
-      return _isConnected;
-    } catch (e) {
-      return _isConnected;
-    }
-  }
-
-  @override
-  void dispose() {
-    _subscription?.cancel();
-    _pollTimer?.cancel();
-    super.dispose();
-  }
-}
+// class NetworkService extends ChangeNotifier {
+//   bool _isConnected = true;
+//   final Connectivity _connectivity = Connectivity();
+//   StreamSubscription<List<ConnectivityResult>>? _subscription;
+//   Timer? _pollTimer;
+//
+//   bool get isConnected => _isConnected;
+//
+//   NetworkService() {
+//     _initConnectivity();
+//   }
+//
+//   Future<void> _initConnectivity() async {
+//     try {
+//       final results = await _connectivity.checkConnectivity();
+//       _updateConnectionStatus(results);
+//
+//       // Sur Windows/Linux Desktop : Polling au lieu de stream
+//       if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
+//         debugPrint('NetworkService: Using polling for Windows/Linux');
+//         _startPolling();
+//       } else {
+//         // Android/iOS/Web/macOS : Stream classique
+//         _subscription = _connectivity.onConnectivityChanged.listen(
+//           _updateConnectionStatus,
+//           onError: (e) => debugPrint('Connectivity stream error: $e'),
+//         );
+//       }
+//     } catch (e) {
+//       debugPrint('NetworkService init error: $e');
+//       _isConnected = true; // Assume connected on error
+//     }
+//   }
+//
+//   /// Polling pour Windows Desktop (évite le bug du stream)
+//   void _startPolling() {
+//     _pollTimer?.cancel();
+//     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+//       try {
+//         final results = await _connectivity.checkConnectivity();
+//         _updateConnectionStatus(results);
+//       } catch (e) {
+//         debugPrint('Connectivity poll error: $e');
+//       }
+//     });
+//   }
+//
+//   void _updateConnectionStatus(List<ConnectivityResult> results) {
+//     final wasConnected = _isConnected;
+//     _isConnected =
+//         results.isNotEmpty && results.any((r) => r != ConnectivityResult.none);
+//
+//     if (wasConnected != _isConnected) {
+//       debugPrint('NetworkService: $_isConnected');
+//       notifyListeners();
+//     }
+//   }
+//
+//   Future<bool> checkConnectivity() async {
+//     try {
+//       final results = await _connectivity.checkConnectivity();
+//       _updateConnectionStatus(results);
+//       return _isConnected;
+//     } catch (e) {
+//       return _isConnected;
+//     }
+//   }
+//
+//   @override
+//   void dispose() {
+//     _subscription?.cancel();
+//     _pollTimer?.cancel();
+//     super.dispose();
+//   }
+// }
 
 // ========================================
 // OBJECTBOX SERVICE

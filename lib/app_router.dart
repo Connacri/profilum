@@ -2,10 +2,10 @@
 import 'package:flutter/material.dart';
 
 import '../providers/auth_provider.dart';
-import 'admin_dashboard.dart';
 import 'auth/auth_screen.dart';
-import 'profile_completion_screen.dart';
+import 'screens/admin_dashboard.dart';
 import 'screens/home_screen_complete.dart';
+import 'screens/profile_completion_screen.dart';
 
 // CORRECTION: RouterDelegate<Object> au lieu de RouterDelegate<void>
 class AppRouter extends RouterDelegate<Object>

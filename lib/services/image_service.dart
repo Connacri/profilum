@@ -1,6 +1,8 @@
-// lib/core/services/image_service.dart
+// lib/services/image_service.dart - FIX WINDOWS avec file_picker
+
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
@@ -21,6 +23,11 @@ class ImageService {
 
   Future<File?> captureFromCamera() async {
     try {
+      if (Platform.isWindows || Platform.isLinux) {
+        debugPrint('⚠️ Camera not available on desktop');
+        return null;
+      }
+
       final XFile? photo = await _picker.pickImage(
         source: ImageSource.camera,
         maxWidth: _maxWidth.toDouble(),
@@ -40,6 +47,20 @@ class ImageService {
 
   Future<File?> pickFromGallery() async {
     try {
+      // Windows/Linux: utiliser file_picker
+      if (Platform.isWindows || Platform.isLinux) {
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.image,
+          allowMultiple: false,
+        );
+
+        if (result == null || result.files.isEmpty) return null;
+
+        final file = File(result.files.first.path!);
+        return await _addWatermarkAndCompress(file, fromCamera: false);
+      }
+
+      // Android/iOS: utiliser image_picker
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
         maxWidth: _maxWidth.toDouble(),
@@ -59,6 +80,31 @@ class ImageService {
 
   Future<List<File>> pickMultipleFromGallery({int maxImages = 6}) async {
     try {
+      // Windows/Linux: utiliser file_picker
+      if (Platform.isWindows || Platform.isLinux) {
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.image,
+          allowMultiple: true,
+        );
+
+        if (result == null || result.files.isEmpty) return [];
+
+        final List<File> processedImages = [];
+        for (var i = 0; i < result.files.length && i < maxImages; i++) {
+          final file = File(result.files[i].path!);
+          final processed = await _addWatermarkAndCompress(
+            file,
+            fromCamera: false,
+          );
+          if (processed != null) {
+            processedImages.add(processed);
+          }
+        }
+
+        return processedImages;
+      }
+
+      // Android/iOS: utiliser image_picker
       final List<XFile> images = await _picker.pickMultiImage(
         maxWidth: _maxWidth.toDouble(),
         maxHeight: _maxHeight.toDouble(),
@@ -85,7 +131,6 @@ class ImageService {
     }
   }
 
-  // CORRECTION: Utilisation de encodeJpg au lieu de encodeWebP
   Future<File?> _addWatermarkAndCompress(
     File imageFile, {
     required bool fromCamera,
@@ -96,31 +141,29 @@ class ImageService {
 
       if (image == null) return null;
 
-      // Redimensionner si nécessaire
+      // Resize preserve aspect ratio + meilleure interpolation
       if (image.width > _maxWidth || image.height > _maxHeight) {
         image = img.copyResize(
           image,
           width: image.width > image.height ? _maxWidth : null,
           height: image.height > image.width ? _maxHeight : null,
+          interpolation: img.Interpolation.cubic,
         );
       }
 
-      // Ajouter watermark si photo prise par caméra
       if (fromCamera) {
         image = _addWatermark(image);
       }
 
-      // CORRECTION: Utilisation de encodeJpg pour compatibilité
-      // WebP n'est pas supporté par toutes les versions de la lib image
-      final jpgBytes = img.encodeJpg(image, quality: _quality);
+      // JPEG avec qualité 85 (excellent compromis)
+      final List<int> jpegBytes = img.encodeJpg(image, quality: _quality);
 
-      // Sauvegarder localement
       final tempDir = await getTemporaryDirectory();
       final fileName = '${const Uuid().v4()}.jpg';
-      final processedFile = File('${tempDir.path}/$fileName');
-      await processedFile.writeAsBytes(jpgBytes);
+      final jpegFile = File('${tempDir.path}/$fileName');
+      await jpegFile.writeAsBytes(jpegBytes);
 
-      return processedFile;
+      return jpegFile;
     } catch (e) {
       debugPrint('Image processing error: $e');
       return null;
@@ -128,16 +171,14 @@ class ImageService {
   }
 
   img.Image _addWatermark(img.Image image) {
-    // CORRECTION: Utilisation correcte des couleurs avec getColor
-    final watermarkColor = image.getColor(255, 255, 255);
-    final shadowColor = image.getColor(0, 0, 0);
+    final watermarkColor = img.ColorRgb8(255, 255, 255);
+    final shadowColor = img.ColorRgb8(0, 0, 0);
 
     const fontSize = 24;
     const padding = 20;
     final x = image.width - (fontSize * _watermarkText.length ~/ 2) - padding;
     final y = padding;
 
-    // Ombre pour lisibilité
     img.drawString(
       image,
       _watermarkText,
@@ -147,7 +188,6 @@ class ImageService {
       color: shadowColor,
     );
 
-    // Texte principal
     img.drawString(
       image,
       _watermarkText,
@@ -167,7 +207,7 @@ class ImageService {
     String? folder,
   }) async {
     try {
-      final fileName = '${const Uuid().v4()}.jpg';
+      final fileName = '${const Uuid().v4()}.webp';
       final path = folder != null ? '$folder/$fileName' : fileName;
       final fullPath = '$userId/$path';
 
@@ -177,7 +217,7 @@ class ImageService {
             fullPath,
             imageFile,
             fileOptions: const FileOptions(
-              contentType: 'image/jpeg',
+              contentType: 'image/jpeg', // changé de webp
               upsert: false,
             ),
           );

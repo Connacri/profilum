@@ -24,7 +24,7 @@ enum AuthStatus {
 class AuthProvider extends ChangeNotifier {
   final SupabaseClient _supabase;
   final ObjectBoxService _objectBox;
-  final NetworkService _networkService;
+  //final NetworkService _networkService;
 
   AuthStatus _status = AuthStatus.initial;
   UserEntity? _currentUser;
@@ -37,7 +37,7 @@ class AuthProvider extends ChangeNotifier {
   static const Duration _refreshBuffer = Duration(hours: 1);
   static const Duration _heartbeatInterval = Duration(minutes: 5);
 
-  AuthProvider(this._supabase, this._objectBox, this._networkService) {
+  AuthProvider(this._supabase, this._objectBox /*this._networkService*/) {
     _initAuth();
   }
 
@@ -116,61 +116,66 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ===== SIGNUP =====
+  // lib/providers/auth_provider.dart - VERSION SIMPLE (le trigger marche maintenant)
+
   Future<bool> signUp({
     required String email,
     required String password,
     String? fullName,
   }) async {
+    debugPrint('🔵 SIGNUP START: $email');
     _status = AuthStatus.loading;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      if (!_networkService.isConnected) {
-        throw Exception('Aucune connexion Internet');
-      }
+      // if (!_networkService.isConnected) {
+      //   debugPrint('❌ SIGNUP ERROR: No internet');
+      //   throw Exception('Aucune connexion Internet');
+      // }
 
+      debugPrint('🔵 Calling Supabase signUp...');
       final response = await _supabase.auth.signUp(
         email: email,
         password: password,
         data: {'full_name': fullName},
       );
 
+      debugPrint('🔵 Supabase response: ${response.user?.id}');
+
       if (response.user != null) {
-        // Créer le profil minimal
-        await _createMinimalUserProfile(response.user!.id, email, fullName);
+        debugPrint('✅ User created: ${response.user!.id}');
 
-        // Vérifier que le profil a bien été créé
-        final profile = await _supabase
-            .from('profiles')
-            .select()
-            .eq('id', response.user!.id)
-            .single();
+        // Attendre que le trigger finisse (max 2 sec)
+        await Future.delayed(const Duration(seconds: 2));
 
-        if (profile == null) {
-          throw Exception('Échec de création du profil. Veuillez réessayer.');
-        }
+        debugPrint('🔵 Loading user profile...');
+        await _loadUserFromSupabase(response.user!.id);
 
-        if (response.user!.emailConfirmedAt == null) {
-          _status = AuthStatus.emailVerificationPending;
-          await _saveUnverifiedUser(response.user!.id, email);
-          _startGracePeriodTimer(response.user!.id);
-        } else {
-          await _loadUserFromSupabase(response.user!.id);
-          _status = AuthStatus.profileIncomplete;
-        }
+        _status = response.user!.emailConfirmedAt == null
+            ? AuthStatus.emailVerificationPending
+            : AuthStatus.profileIncomplete;
 
+        debugPrint('✅ SIGNUP SUCCESS - Status: $_status');
         notifyListeners();
         return true;
       }
 
-      throw Exception('Échec de création de compte');
+      debugPrint('❌ SIGNUP ERROR: No user returned');
+      throw Exception('Échec signup');
     } on AuthException catch (e) {
+      debugPrint('❌ AUTH EXCEPTION: ${e.message} (${e.statusCode})');
+      if (e.message.contains('already')) {
+        debugPrint('🔵 Email exists, converting to login...');
+        return await signIn(email: email, password: password);
+      }
       _errorMessage = _handleAuthError(e);
       _status = AuthStatus.error;
       notifyListeners();
       return false;
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('❌ SIGNUP ERROR: $e');
+      debugPrint('Stack: $stack');
       _errorMessage = 'Erreur: $e';
       _status = AuthStatus.error;
       notifyListeners();
@@ -203,16 +208,16 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      if (!_networkService.isConnected) {
-        final cachedUser = await _objectBox.getUserByEmail(email);
-        if (cachedUser != null) {
-          _currentUser = cachedUser;
-          _status = AuthStatus.authenticated;
-          notifyListeners();
-          return true;
-        }
-        throw Exception('Aucune connexion Internet');
-      }
+      // if (!_networkService.isConnected) {
+      //   final cachedUser = await _objectBox.getUserByEmail(email);
+      //   if (cachedUser != null) {
+      //     _currentUser = cachedUser;
+      //     _status = AuthStatus.authenticated;
+      //     notifyListeners();
+      //     return true;
+      //   }
+      //   throw Exception('Aucune connexion Internet');
+      // }
 
       final response = await _supabase.auth.signInWithPassword(
         email: email,
@@ -242,9 +247,9 @@ class AuthProvider extends ChangeNotifier {
   // ===== RESET PASSWORD =====
   Future<bool> resetPassword(String email) async {
     try {
-      if (!_networkService.isConnected) {
-        throw Exception('Aucune connexion Internet');
-      }
+      // if (!_networkService.isConnected) {
+      //   throw Exception('Aucune connexion Internet');
+      // }
 
       await _supabase.auth.resetPasswordForEmail(email);
       return true;
@@ -326,7 +331,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _updateLastActive() async {
-    if (_currentUser == null || !_networkService.isConnected) return;
+    //  if (_currentUser == null || !_networkService.isConnected) return;
 
     try {
       await _supabase

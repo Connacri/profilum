@@ -1,4 +1,5 @@
-// lib/core/providers/profile_completion_provider.dart
+// lib/providers/profile_completion_provider.dart - FIX ENCODING
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -21,8 +22,21 @@ class ProfileCompletionProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
 
-  // Champs obligatoires pour complétion
-  Map<String, bool> _completionFields = {};
+  final Map<String, bool> _completionFields = {
+    'full_name': false,
+    'date_of_birth': false,
+    'gender': false,
+    'looking_for': false,
+    'bio': false,
+    'city': false,
+    'country': false,
+    'occupation': false,
+    'education': false,
+    'height_cm': false,
+    'relationship_status': false,
+    'interests': false,
+    'photos': false,
+  };
 
   ProfileCompletionProvider(
     this._supabase,
@@ -31,7 +45,6 @@ class ProfileCompletionProvider extends ChangeNotifier {
   );
 
   int get completionPercentage {
-    if (_completionFields.isEmpty) return 0;
     final completed = _completionFields.values.where((v) => v).length;
     return ((completed / _completionFields.length) * 100).round();
   }
@@ -43,42 +56,35 @@ class ProfileCompletionProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   UserEntity? get user => _user;
 
-  // CORRECTION: Helpers moved outside initializer
-  List<String> _decodeList(String json) =>
-      json.isEmpty ? [] : List<String>.from(jsonDecode(json));
+  // FIX: Décoder correctement les listes
+  List<String> _decodeList(String json) {
+    if (json.isEmpty || json == '[]') return [];
+
+    try {
+      // Si c'est déjà du JSON valide
+      return List<String>.from(jsonDecode(json));
+    } catch (e) {
+      // Sinon c'est encodé en URI (legacy)
+      try {
+        final decoded = Uri.decodeComponent(json);
+        return decoded.split(',').where((s) => s.isNotEmpty).toList();
+      } catch (e2) {
+        debugPrint('❌ Error decoding list: $json - $e2');
+        return [];
+      }
+    }
+  }
 
   String _encodeList(List<String> list) => jsonEncode(list);
 
   void initialize(UserEntity user) {
     _user = user;
-    _initializeCompletionFields();
     _updateCompletionFields();
     notifyListeners();
   }
 
-  void _initializeCompletionFields() {
-    _completionFields = {
-      'full_name': false,
-      'date_of_birth': false,
-      'gender': false,
-      'looking_for': false,
-      'bio': false,
-      'city': false,
-      'country': false,
-      'occupation': false,
-      'education': false,
-      'height_cm': false,
-      'relationship_status': false,
-      'interests': false,
-      'photos': false,
-    };
-  }
-
   void _updateCompletionFields() {
     if (_user == null) return;
-
-    final photos = _decodeList(_user!.photosJson);
-    final interests = _decodeList(_user!.interestsJson);
 
     _completionFields['full_name'] = _user!.fullName?.isNotEmpty ?? false;
     _completionFields['date_of_birth'] = _user!.dateOfBirth != null;
@@ -92,9 +98,8 @@ class ProfileCompletionProvider extends ChangeNotifier {
     _completionFields['height_cm'] = _user!.heightCm != null;
     _completionFields['relationship_status'] =
         _user!.relationshipStatus?.isNotEmpty ?? false;
-    _completionFields['interests'] = interests.length >= 3;
-    _completionFields['photos'] =
-        photos.length >= 3 || _selectedPhotos.length >= 3;
+    _completionFields['interests'] = _user!.interests.length >= 3;
+    _completionFields['photos'] = _user!.photos.length >= 3;
   }
 
   void updateField(String field, dynamic value) {
@@ -175,7 +180,6 @@ class ProfileCompletionProvider extends ChangeNotifier {
     }
   }
 
-  // CORRECTION: Logique corrigée
   Future<bool> saveProfile({bool isSkipped = false}) async {
     if (_user == null) return false;
 
@@ -184,8 +188,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Upload photos nouvelles
-      final uploadedUrls = <String>[];
+      final uploadedPhotos = <String>[];
       for (var i = 0; i < _selectedPhotos.length; i++) {
         final url = await _imageService.uploadToStorage(
           imageFile: _selectedPhotos[i],
@@ -195,7 +198,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
         );
 
         if (url != null) {
-          uploadedUrls.add(url);
+          uploadedPhotos.add(url);
 
           final photoEntity = PhotoEntity(
             photoId: const Uuid().v4(),
@@ -214,11 +217,6 @@ class ProfileCompletionProvider extends ChangeNotifier {
         }
       }
 
-      // CORRECTION: Combine photos existantes + nouvelles
-      final existingPhotos = _decodeList(_user!.photosJson);
-      final allPhotos = [...existingPhotos, ...uploadedUrls];
-
-      // Mise à jour Supabase
       final updateData = {
         'full_name': _user!.fullName,
         'date_of_birth': _user!.dateOfBirth?.toIso8601String(),
@@ -234,7 +232,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
         'interests': _user!.interests,
         'instagram_handle': _user!.instagramHandle,
         'spotify_anthem': _user!.spotifyAnthem,
-        'photos': allPhotos,
+        'photos': uploadedPhotos,
         'profile_completed': !isSkipped && isComplete,
         'completion_percentage': completionPercentage,
         'updated_at': DateTime.now().toIso8601String(),
@@ -245,9 +243,8 @@ class ProfileCompletionProvider extends ChangeNotifier {
           .update(updateData)
           .eq('id', _user!.userId);
 
-      // Mise à jour locale
       _user = _user!
-        ..photos = allPhotos
+        ..photos = uploadedPhotos
         ..profileCompleted = !isSkipped && isComplete
         ..completionPercentage = completionPercentage
         ..updatedAt = DateTime.now();
