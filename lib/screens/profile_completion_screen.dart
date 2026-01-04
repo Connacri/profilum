@@ -56,13 +56,16 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   @override
   void initState() {
     super.initState();
+
     final authProvider = context.read<AuthProvider>();
     final user = authProvider.currentUser;
 
     if (user != null) {
+      // Initialisation silencieuse du provider
       final provider = context.read<ProfileCompletionProvider>();
       provider.initialize(user);
 
+      // Pré-remplir les champs UI locaux
       _nameController.text = user.fullName ?? '';
       _bioController.text = user.bio ?? '';
       _cityController.text = user.city ?? '';

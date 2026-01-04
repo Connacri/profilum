@@ -75,12 +75,22 @@ class ProfileCompletionProvider extends ChangeNotifier {
     }
   }
 
-  String _encodeList(List<String> list) => jsonEncode(list);
-
+  // Initialisation silencieuse (sans notifyListeners)
   void initialize(UserEntity user) {
     _user = user;
     _updateCompletionFields();
-    notifyListeners();
+    // PAS de notifyListeners() ici
+  }
+
+  // Initialisation avec notification différée (pour les cas où c'est nécessaire)
+  void initializeWithNotification(UserEntity user) {
+    _user = user;
+    _updateCompletionFields();
+
+    // Notification différée après le build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      notifyListeners();
+    });
   }
 
   void _updateCompletionFields() {
@@ -100,6 +110,8 @@ class ProfileCompletionProvider extends ChangeNotifier {
         _user!.relationshipStatus?.isNotEmpty ?? false;
     _completionFields['interests'] = _user!.interests.length >= 3;
     _completionFields['photos'] = _user!.photos.length >= 3;
+
+    // PAS de notifyListeners() ici non plus
   }
 
   void updateField(String field, dynamic value) {
@@ -189,7 +201,11 @@ class ProfileCompletionProvider extends ChangeNotifier {
 
     try {
       final uploadedPhotos = <String>[];
+
+      // Upload des photos avec gestion d'erreur
       for (var i = 0; i < _selectedPhotos.length; i++) {
+        debugPrint('📤 Uploading photo ${i + 1}/${_selectedPhotos.length}...');
+
         final url = await _imageService.uploadToStorage(
           imageFile: _selectedPhotos[i],
           userId: _user!.userId,
@@ -199,7 +215,9 @@ class ProfileCompletionProvider extends ChangeNotifier {
 
         if (url != null) {
           uploadedPhotos.add(url);
+          debugPrint('✅ Photo ${i + 1} uploaded');
 
+          // Sauvegarder dans ObjectBox
           final photoEntity = PhotoEntity(
             photoId: const Uuid().v4(),
             userId: _user!.userId,
@@ -214,9 +232,19 @@ class ProfileCompletionProvider extends ChangeNotifier {
 
           await _objectBox.savePhoto(photoEntity);
           _photoEntities.add(photoEntity);
+        } else {
+          // Erreur d'upload
+          debugPrint('❌ Failed to upload photo ${i + 1}');
+          _errorMessage =
+              'Erreur d\'upload des photos. '
+              'Vérifiez que le bucket "profiles" existe dans Supabase Storage.';
+          _isLoading = false;
+          notifyListeners();
+          return false;
         }
       }
 
+      // Mise à jour du profil dans Supabase
       final updateData = {
         'full_name': _user!.fullName,
         'date_of_birth': _user!.dateOfBirth?.toIso8601String(),
@@ -243,6 +271,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
           .update(updateData)
           .eq('id', _user!.userId);
 
+      // Mise à jour locale
       _user = _user!
         ..photos = uploadedPhotos
         ..profileCompleted = !isSkipped && isComplete
@@ -254,8 +283,11 @@ class ProfileCompletionProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
       return true;
-    } catch (e) {
-      _errorMessage = 'Erreur sauvegarde: $e';
+    } catch (e, stackTrace) {
+      debugPrint('❌ Save profile error: $e');
+      debugPrint('Stack trace: $stackTrace');
+
+      _errorMessage = 'Erreur lors de la sauvegarde : ${e.toString()}';
       _isLoading = false;
       notifyListeners();
       return false;

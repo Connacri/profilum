@@ -207,24 +207,67 @@ class ImageService {
     String? folder,
   }) async {
     try {
-      final fileName = '${const Uuid().v4()}.webp';
+      final fileName = '${const Uuid().v4()}.jpg';
       final path = folder != null ? '$folder/$fileName' : fileName;
       final fullPath = '$userId/$path';
 
+      debugPrint('🔵 Upload attempt: bucket=$bucket, path=$fullPath');
+
+      // Vérifier que le bucket existe
+      try {
+        await _supabase.storage
+            .from(bucket)
+            .list(path: '', searchOptions: SearchOptions(limit: 1));
+      } catch (e) {
+        debugPrint(
+          '❌ Bucket "$bucket" not found. Please create it in Supabase Dashboard.',
+        );
+        throw StorageException(
+          'Le bucket de stockage "$bucket" n\'existe pas. '
+          'Veuillez le créer dans le tableau de bord Supabase.',
+        );
+      }
+
+      // Upload du fichier
       await _supabase.storage
           .from(bucket)
           .upload(
             fullPath,
             imageFile,
             fileOptions: const FileOptions(
-              contentType: 'image/jpeg', // changé de webp
+              contentType: 'image/jpeg',
               upsert: false,
             ),
           );
 
-      return _supabase.storage.from(bucket).getPublicUrl(fullPath);
+      final publicUrl = _supabase.storage.from(bucket).getPublicUrl(fullPath);
+      debugPrint('✅ Upload success: $publicUrl');
+
+      return publicUrl;
+    } on StorageException catch (e) {
+      debugPrint('❌ StorageException: ${e.message} (${e.statusCode})');
+
+      if (e.statusCode == 404 || e.message.contains('Bucket not found')) {
+        // Message d'erreur détaillé
+        debugPrint('');
+        debugPrint('════════════════════════════════════════════════════');
+        debugPrint('⚠️  ERREUR : Bucket Supabase manquant');
+        debugPrint('════════════════════════════════════════════════════');
+        debugPrint('Bucket requis : "$bucket"');
+        debugPrint('');
+        debugPrint('📋 Instructions :');
+        debugPrint('1. Allez sur https://supabase.com/dashboard');
+        debugPrint('2. Sélectionnez votre projet');
+        debugPrint('3. Menu Storage → Create bucket');
+        debugPrint('4. Nom : "$bucket"');
+        debugPrint('5. Cochez "Public bucket"');
+        debugPrint('════════════════════════════════════════════════════');
+        debugPrint('');
+      }
+
+      return null;
     } catch (e) {
-      debugPrint('Upload error: $e');
+      debugPrint('❌ Upload error: $e');
       return null;
     }
   }

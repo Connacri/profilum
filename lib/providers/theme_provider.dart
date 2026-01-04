@@ -29,9 +29,13 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setUserGender(String? gender) {
+  // ✅ CORRECTION : Ne notifier que si la valeur change
+  void setUserGender(String gender) {
     _userGender = gender;
-    notifyListeners();
+    // Defer the notification until after the build phase
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      notifyListeners();
+    });
   }
 
   ThemeData getLightTheme() {
@@ -64,6 +68,8 @@ class ThemeProvider extends ChangeNotifier {
     }
   }
 
+  // ... reste du code inchangé (thèmes)
+
   ThemeData _getMaleTheme(bool isDark) {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: const Color(0xFF1E3A8A),
@@ -72,7 +78,6 @@ class ThemeProvider extends ChangeNotifier {
       secondary: const Color(0xFF3B82F6),
       tertiary: const Color(0xFF60A5FA),
     );
-
     return _buildTheme(colorScheme, isDark);
   }
 
@@ -84,7 +89,6 @@ class ThemeProvider extends ChangeNotifier {
       secondary: const Color(0xFFF472B6),
       tertiary: const Color(0xFFFBBF24),
     );
-
     return _buildTheme(colorScheme, isDark);
   }
 
@@ -96,7 +100,6 @@ class ThemeProvider extends ChangeNotifier {
       secondary: const Color(0xFFC084FC),
       tertiary: const Color(0xFFFBBF24),
     );
-
     return _buildTheme(colorScheme, isDark);
   }
 
@@ -108,7 +111,6 @@ class ThemeProvider extends ChangeNotifier {
       secondary: const Color(0xFF14B8A6),
       tertiary: const Color(0xFF2DD4BF),
     );
-
     return _buildTheme(colorScheme, isDark);
   }
 
@@ -120,7 +122,6 @@ class ThemeProvider extends ChangeNotifier {
       secondary: const Color(0xFF8B5CF6),
       tertiary: const Color(0xFFEC4899),
     );
-
     return _buildTheme(colorScheme, isDark);
   }
 
@@ -129,9 +130,7 @@ class ThemeProvider extends ChangeNotifier {
       useMaterial3: true,
       colorScheme: colorScheme,
       brightness: isDark ? Brightness.dark : Brightness.light,
-      fontFamily:
-          'PlayfairDisplay', // Police par défaut pour toute l'application
-
+      fontFamily: 'PlayfairDisplay',
       textTheme: const TextTheme(
         displayLarge: TextStyle(
           fontSize: 57,
@@ -185,20 +184,16 @@ class ThemeProvider extends ChangeNotifier {
           letterSpacing: 0.5,
         ),
       ),
-
-      // CORRECTION: CardThemeData au lieu de CardTheme
       cardTheme: CardThemeData(
         elevation: isDark ? 2 : 1,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
-
       appBarTheme: AppBarTheme(
         centerTitle: false,
         elevation: 0,
         backgroundColor: Colors.transparent,
         foregroundColor: colorScheme.onSurface,
       ),
-
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: isDark
@@ -221,7 +216,6 @@ class ThemeProvider extends ChangeNotifier {
           borderSide: BorderSide(color: colorScheme.error),
         ),
       ),
-
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           shape: RoundedRectangleBorder(
@@ -230,7 +224,6 @@ class ThemeProvider extends ChangeNotifier {
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
         ),
       ),
-
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           shape: RoundedRectangleBorder(
@@ -239,7 +232,6 @@ class ThemeProvider extends ChangeNotifier {
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
         ),
       ),
-
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
         backgroundColor: isDark ? colorScheme.surface : colorScheme.surface,
         selectedItemColor: colorScheme.primary,
@@ -247,7 +239,6 @@ class ThemeProvider extends ChangeNotifier {
         type: BottomNavigationBarType.fixed,
         elevation: 8,
       ),
-
       chipTheme: ChipThemeData(
         backgroundColor: colorScheme.surfaceVariant,
         selectedColor: colorScheme.primaryContainer,

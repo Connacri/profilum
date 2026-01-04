@@ -59,7 +59,14 @@ class ProfilumApp extends StatelessWidget {
       child: Consumer2<ThemeProvider, AuthProvider>(
         builder: (context, themeProvider, authProvider, _) {
           if (authProvider.currentUser?.gender != null) {
-            themeProvider.setUserGender(authProvider.currentUser!.gender);
+            themeProvider.setUserGender(authProvider.currentUser!.gender!);
+          } // Mettre à jour le gender APRÈS le build
+          final currentGender = authProvider.currentUser?.gender;
+          if (currentGender != null &&
+              themeProvider.userGender != currentGender) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              themeProvider.setUserGender(currentGender);
+            });
           }
 
           return MaterialApp.router(
