@@ -55,6 +55,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   UserEntity? get user => _user;
+  ImageService get imageService => _imageService;
 
   // FIX: Décoder correctement les listes
   List<String> _decodeList(String json) {
@@ -268,7 +269,8 @@ class ProfileCompletionProvider extends ChangeNotifier {
         'instagram_handle': _user!.instagramHandle,
         'spotify_anthem': _user!.spotifyAnthem,
         'photos': uploadedPhotos,
-        'profile_completed': isProfileComplete, // ✅ IMPORTANT
+        'photo_url': _user!.photoUrl, // ✅ AJOUT: photo de profil
+        'profile_completed': isProfileComplete,
         'completion_percentage': finalCompletion,
         'updated_at': DateTime.now().toIso8601String(),
       };

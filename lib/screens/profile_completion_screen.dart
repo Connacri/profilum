@@ -1,3 +1,4 @@
+// lib/screens/profile_completion_screen_improved.dart
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -18,7 +19,7 @@ class ProfileCompletionScreen extends StatefulWidget {
 class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   final _pageController = PageController();
   int _currentPage = 0;
-  final int _totalPages = 5;
+  final int _totalPages = 6; // ✅ +1 page pour la photo de profil
 
   final _nameController = TextEditingController();
   final _bioController = TextEditingController();
@@ -34,7 +35,11 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   String? _selectedRelationship;
   List<String> _selectedInterests = [];
 
-  bool _isSkipping = false; // ✅ Pour bloquer les boutons pendant le traitement
+  // ✨ NOUVEAU: Photo de profil séparée
+  File? _profilePhoto;
+  bool _isLoadingLocation = false;
+
+  bool _isSkipping = false;
 
   final List<String> _availableInterests = [
     'Sport',
@@ -92,8 +97,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   }
 
   void _nextPage() {
-    debugPrint('🔵 _nextPage - current: $_currentPage, total: $_totalPages');
-
     if (_currentPage < _totalPages - 1) {
       _pageController.nextPage(
         duration: const Duration(milliseconds: 300),
@@ -111,7 +114,81 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     }
   }
 
-  // ✅ FIX: Skip avec gestion d'état
+  // ✨ NOUVEAU: Récupérer la location automatiquement
+  Future<void> _getLocation() async {
+    setState(() => _isLoadingLocation = true);
+
+    try {
+      // ⚠️ OPTION 1: Avec geolocator (nécessite l'ajout du package)
+      // Voir commentaire ci-dessous pour l'implémentation
+
+      // ⚠️ OPTION 2: Saisie manuelle (par défaut)
+      await _showLocationDialog();
+
+    } catch (e) {
+      debugPrint('Location error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingLocation = false);
+      }
+    }
+  }
+
+  // Dialog pour saisie manuelle de location
+  Future<void> _showLocationDialog() async {
+    final cityController = TextEditingController(text: _cityController.text);
+
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Votre localisation'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: cityController,
+              decoration: InputDecoration(
+                labelText: 'Ville',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx, {
+                'city': cityController.text,
+                'country': 'Algérie', // Par défaut
+              });
+            },
+            child: const Text('Confirmer'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        _cityController.text = result['city'] ?? '';
+      });
+    }
+  }
+
   Future<void> _skip() async {
     if (_isSkipping) return;
 
@@ -122,7 +199,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         title: const Text('Passer pour l\'instant ?'),
         content: const Text(
           'Vous pourrez compléter votre profil plus tard.\n\n'
-          'Note : Un profil complet augmente vos chances de match !',
+              'Note : Un profil complet augmente vos chances de match !',
         ),
         actions: [
           TextButton(
@@ -145,8 +222,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
       final authProvider = context.read<AuthProvider>();
       final success = await authProvider.skipProfileCompletion();
 
-      debugPrint('Skip result: $success, status: ${authProvider.status}');
-
       if (!success && mounted) {
         setState(() => _isSkipping = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -157,7 +232,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         );
       }
     } catch (e) {
-      debugPrint('Skip error: $e');
       if (mounted) {
         setState(() => _isSkipping = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -167,10 +241,10 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     }
   }
 
-  // ✅ FIX CRITIQUE: Complete avec reload de l'AuthProvider
-  Future<void> _complete() async {
-    debugPrint('🔵 _complete called');
+// lib/screens/profile_completion_screen.dart
+// Remplace la méthode _complete() par celle-ci :
 
+  Future<void> _complete() async {
     if (_isSkipping) return;
 
     setState(() => _isSkipping = true);
@@ -181,6 +255,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     provider.updateField('full_name', _nameController.text);
     provider.updateField('bio', _bioController.text);
     provider.updateField('city', _cityController.text);
+    provider.updateField('country', 'Algérie');
     provider.updateField('occupation', _occupationController.text);
     provider.updateField('instagram_handle', _instagramController.text);
     provider.updateField('gender', _selectedGender);
@@ -191,59 +266,47 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     provider.updateField('relationship_status', _selectedRelationship);
     provider.updateField('interests', _selectedInterests);
 
-    debugPrint('🔵 Saving profile...');
+    // ✅ NOUVEAU: Upload de la photo de profil si présente
+    String? profilePhotoUrl;
+    if (_profilePhoto != null) {
+      debugPrint('📤 Uploading profile photo...');
+
+      profilePhotoUrl = await provider.imageService.uploadToStorage(
+        imageFile: _profilePhoto!,
+        userId: context.read<AuthProvider>().currentUser!.userId,
+        bucket: 'profiles',
+        folder: 'avatar',
+      );
+
+      if (profilePhotoUrl != null) {
+        debugPrint('✅ Profile photo uploaded: $profilePhotoUrl');
+        provider.updateField('photo_url', profilePhotoUrl);
+      } else {
+        debugPrint('❌ Failed to upload profile photo');
+      }
+    }
 
     final success = await provider.saveProfile(isSkipped: false);
-
-    debugPrint('🔵 Save result: $success');
 
     if (!mounted) return;
 
     if (success) {
-      debugPrint('✅ Profile saved successfully');
-
-      // ✅ FIX CRITIQUE: Recharger l'utilisateur dans AuthProvider
       final authProvider = context.read<AuthProvider>();
 
       try {
-        debugPrint('🔵 Reloading user from Supabase...');
         await authProvider.reloadCurrentUser();
-
-        debugPrint('✅ User reloaded - status: ${authProvider.status}');
-        debugPrint(
-          '   Profile completed: ${authProvider.currentUser?.profileCompleted}',
-        );
-
-        // Le router va automatiquement rediriger vers home
-        await Future.delayed(const Duration(milliseconds: 100));
-
-        if (mounted && authProvider.status != AuthStatus.authenticated) {
-          debugPrint('⚠️ Status not authenticated!');
-        }
-      } catch (e, stack) {
-        debugPrint('❌ Error reloading user: $e\n$stack');
-
+        debugPrint('✅ Profile completed successfully');
+      } catch (e) {
         setState(() => _isSkipping = false);
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
       }
     } else {
-      debugPrint('❌ Save failed');
-
       setState(() => _isSkipping = false);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Erreur lors de la sauvegarde'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erreur de sauvegarde')),
+      );
     }
   }
 
@@ -261,15 +324,12 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
             onPressed: _isSkipping ? null : _skip,
             icon: _isSkipping
                 ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
                 : const Icon(Icons.skip_next),
             label: Text(_isSkipping ? 'Chargement...' : 'Passer'),
-            style: TextButton.styleFrom(
-              foregroundColor: theme.colorScheme.primary,
-            ),
           ),
           const SizedBox(width: 8),
         ],
@@ -312,10 +372,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                         child: LinearProgressIndicator(
                           value: provider.completionPercentage / 100,
                           minHeight: 8,
-                          backgroundColor: theme.colorScheme.surfaceVariant,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            theme.colorScheme.primary,
-                          ),
                         ),
                       ),
                     ],
@@ -332,12 +388,12 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                     ? const NeverScrollableScrollPhysics()
                     : null,
                 onPageChanged: (index) {
-                  debugPrint('🔵 Page changed to: $index');
                   setState(() => _currentPage = index);
                 },
                 children: [
                   _buildBasicInfoPage(),
-                  _buildPhotosPage(),
+                  _buildProfilePhotoPage(), // ✨ NOUVEAU
+                  _buildGalleryPhotosPage(), // ✨ MODIFIÉ
                   _buildPersonalityPage(),
                   _buildDetailsPage(),
                   _buildInterestsPage(),
@@ -354,12 +410,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                     Expanded(
                       child: OutlinedButton(
                         onPressed: _isSkipping ? null : _previousPage,
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
                         child: const Text('Précédent'),
                       ),
                     ),
@@ -370,28 +420,22 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                       onPressed: _isSkipping
                           ? null
                           : (_currentPage == _totalPages - 1
-                                ? _complete
-                                : _nextPage),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
+                          ? _complete
+                          : _nextPage),
                       child: _isSkipping
                           ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                           : Text(
-                              _currentPage == _totalPages - 1
-                                  ? 'Terminer'
-                                  : 'Suivant',
-                            ),
+                        _currentPage == _totalPages - 1
+                            ? 'Terminer'
+                            : 'Suivant',
+                      ),
                     ),
                   ),
                 ],
@@ -411,11 +455,10 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         children: [
           Text(
             'Informations de base',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
-
           const SizedBox(height: 24),
 
           TextField(
@@ -498,12 +541,141 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
 
           const SizedBox(height: 16),
 
-          TextField(
-            controller: _cityController,
-            decoration: InputDecoration(
-              labelText: 'Ville *',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+          // ✨ NOUVEAU: Location avec bouton auto
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _cityController,
+                  decoration: InputDecoration(
+                    labelText: 'Ville *',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                onPressed: _isLoadingLocation ? null : _getLocation,
+                icon: _isLoadingLocation
+                    ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+                    : const Icon(Icons.my_location),
+                tooltip: 'Position actuelle',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ✨ NOUVEAU: Page photo de profil
+  Widget _buildProfilePhotoPage() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Photo de profil',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Choisissez une belle photo pour votre profil',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          Center(
+            child: GestureDetector(
+              onTap: () {
+                showModalBottomSheet(
+                  context: context,
+                  builder: (ctx) => SafeArea(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.camera_alt),
+                          title: const Text('Prendre une photo'),
+                          onTap: () async {
+                            Navigator.pop(ctx);
+                            final provider = context.read<
+                                ProfileCompletionProvider,
+                            >();
+                            final photo = await provider.imageService
+                                .captureFromCamera();
+                            if (photo != null) {
+                            setState(() => _profilePhoto = photo);
+                            }
+                          },
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.photo_library),
+                          title: const Text('Galerie'),
+                          onTap: () async {
+                            Navigator.pop(ctx);
+                            final provider = context.read<
+                                ProfileCompletionProvider,
+                            >();
+                            final photo = await provider.imageService
+                                .pickFromGallery();
+                            if (photo != null) {
+                            setState(() => _profilePhoto = photo);
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+              child: Container(
+                width: 200,
+                height: 200,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.grey[200],
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 3,
+                  ),
+                ),
+                child: _profilePhoto != null
+                    ? ClipOval(
+                  child: Image.file(
+                    _profilePhoto!,
+                    fit: BoxFit.cover,
+                  ),
+                )
+                    : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.add_a_photo,
+                      size: 48,
+                      color: Colors.grey[600],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Ajouter une photo',
+                      style: TextStyle(color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -512,7 +684,8 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     );
   }
 
-  Widget _buildPhotosPage() {
+  // ✨ MODIFIÉ: Photos de galerie (sans la photo de profil)
+  Widget _buildGalleryPhotosPage() {
     return Consumer<ProfileCompletionProvider>(
       builder: (context, provider, _) {
         return SingleChildScrollView(
@@ -521,21 +694,18 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Ajoutez vos photos',
+                'Photos de galerie',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
               ),
-
               const SizedBox(height: 8),
-
               Text(
-                'Minimum 3 photos requises pour voir les albums des autres',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                'Ajoutez 3 à 6 photos pour votre galerie',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.grey[600],
+                ),
               ),
-
               const SizedBox(height: 24),
 
               GridView.builder(
@@ -548,7 +718,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                   childAspectRatio: 0.75,
                 ),
                 itemCount:
-                    provider.selectedPhotos.length +
+                provider.selectedPhotos.length +
                     (provider.selectedPhotos.length < 6 ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (index == provider.selectedPhotos.length) {
@@ -603,11 +773,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         decoration: BoxDecoration(
           color: Colors.grey[200],
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: Colors.grey[400]!,
-            width: 2,
-            style: BorderStyle.solid,
-          ),
+          border: Border.all(color: Colors.grey[400]!, width: 2),
         ),
         child: const Center(
           child: Icon(Icons.add_a_photo, size: 48, color: Colors.grey),
@@ -617,10 +783,10 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   }
 
   Widget _buildPhotoCard(
-    File photo,
-    int index,
-    ProfileCompletionProvider provider,
-  ) {
+      File photo,
+      int index,
+      ProfileCompletionProvider provider,
+      ) {
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -649,13 +815,11 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         children: [
           Text(
             'Parlez de vous',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
-
           const SizedBox(height: 24),
-
           TextField(
             controller: _bioController,
             maxLines: 5,
@@ -681,11 +845,10 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         children: [
           Text(
             'Détails supplémentaires',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
-
           const SizedBox(height: 24),
 
           TextField(
@@ -729,7 +892,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
             ),
             items: List.generate(
               100,
-              (i) => DropdownMenuItem(
+                  (i) => DropdownMenuItem(
                 value: 140 + i,
                 child: Text('${140 + i} cm'),
               ),
@@ -780,20 +943,17 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
         children: [
           Text(
             'Vos centres d\'intérêt',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
-
           const SizedBox(height: 8),
-
           Text(
             'Sélectionnez au moins 3 centres d\'intérêt',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.grey[600],
+            ),
           ),
-
           const SizedBox(height: 24),
 
           Wrap(

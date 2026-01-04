@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 import 'profile_completion_screen.dart';
+import 'profile_page_carousel.dart';
 
 class HomeScreen extends StatefulWidget {
   final String? gender;
@@ -188,7 +189,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 2:
         return const _MessagesPage();
       case 3:
-        return const _ProfilePage();
+        return const ProfilePage();
       default:
         return const SizedBox.shrink();
     }
@@ -333,214 +334,214 @@ class _MessagesPage extends StatelessWidget {
 // ============================================
 // PROFILE PAGE
 // ============================================
-class _ProfilePage extends StatelessWidget {
-  const _ProfilePage();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final authProvider = context.watch<AuthProvider>();
-    final user = authProvider.currentUser;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          // Avatar
-          CircleAvatar(
-            radius: 60,
-            backgroundImage: user?.photoUrl != null
-                ? NetworkImage(user!.photoUrl!)
-                : null,
-            child: user?.photoUrl == null
-                ? const Icon(Icons.person, size: 60)
-                : null,
-          ),
-
-          const SizedBox(height: 16),
-
-          // Nom
-          Text(
-            user?.fullName ?? 'Utilisateur',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
-          const SizedBox(height: 8),
-
-          // Email
-          Text(
-            user?.email ?? '',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: Colors.grey[600],
-            ),
-          ),
-
-          // ✨ NOUVEAU: Indicateur profil incomplet
-          if (user != null && !user.profileCompleted) ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.orange),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.warning_amber,
-                    color: Colors.orange,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Profil incomplet (${user.completionPercentage}%)',
-                    style: const TextStyle(
-                      color: Colors.orange,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 32),
-
-          // Stats Card
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _StatItem(
-                    icon: Icons.photo,
-                    label: 'Photos',
-                    value: '${user?.photos.length ?? 0}',
-                  ),
-                  _StatItem(icon: Icons.favorite, label: 'Matches', value: '0'),
-                  _StatItem(icon: Icons.chat, label: 'Messages', value: '0'),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          // ✨ NOUVEAU: Bouton pour compléter le profil si incomplet
-          if (user != null && !user.profileCompleted)
-            FilledButton.icon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ProfileCompletionScreen(),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.edit),
-              label: const Text('Compléter mon profil'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-              ),
-            ),
-
-          if (user != null && !user.profileCompleted)
-            const SizedBox(height: 16),
-
-          // Menu Items
-          ListTile(
-            leading: const Icon(Icons.edit),
-            title: const Text('Modifier le profil'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              // TODO: Navigation vers édition profil
-            },
-          ),
-
-          ListTile(
-            leading: const Icon(Icons.photo_library),
-            title: const Text('Mes photos'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              // TODO: Navigation vers galerie
-            },
-          ),
-
-          ListTile(
-            leading: const Icon(Icons.settings),
-            title: const Text('Paramètres'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              // TODO: Navigation vers paramètres
-            },
-          ),
-
-          ListTile(
-            leading: const Icon(Icons.help_outline),
-            title: const Text('Aide & Support'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              // TODO: Navigation vers support
-            },
-          ),
-
-          const SizedBox(height: 16),
-
-          OutlinedButton.icon(
-            onPressed: () async {
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('Déconnexion'),
-                  content: const Text(
-                    'Voulez-vous vraiment vous déconnecter ?',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('Annuler'),
-                    ),
-                    FilledButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text('Déconnexion'),
-                    ),
-                  ],
-                ),
-              );
-
-              if (confirmed == true && context.mounted) {
-                await context.read<AuthProvider>().signOut();
-              }
-            },
-            icon: const Icon(Icons.logout),
-            label: const Text('Déconnexion'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.red,
-              side: const BorderSide(color: Colors.red),
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          // Version
-          Text(
-            'Profilum v1.0.0',
-            style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[400]),
-          ),
-        ],
-      ),
-    );
-  }
-}
+// class _ProfilePage extends StatelessWidget {
+//   const _ProfilePage();
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     final theme = Theme.of(context);
+//     final authProvider = context.watch<AuthProvider>();
+//     final user = authProvider.currentUser;
+//
+//     return SingleChildScrollView(
+//       padding: const EdgeInsets.all(24),
+//       child: Column(
+//         children: [
+//           // Avatar
+//           CircleAvatar(
+//             radius: 60,
+//             backgroundImage: user?.photoUrl != null
+//                 ? NetworkImage(user!.photoUrl!)
+//                 : null,
+//             child: user?.photoUrl == null
+//                 ? const Icon(Icons.person, size: 60)
+//                 : null,
+//           ),
+//
+//           const SizedBox(height: 16),
+//
+//           // Nom
+//           Text(
+//             user?.fullName ?? 'Utilisateur',
+//             style: theme.textTheme.headlineSmall?.copyWith(
+//               fontWeight: FontWeight.bold,
+//             ),
+//           ),
+//
+//           const SizedBox(height: 8),
+//
+//           // Email
+//           Text(
+//             user?.email ?? '',
+//             style: theme.textTheme.bodyMedium?.copyWith(
+//               color: Colors.grey[600],
+//             ),
+//           ),
+//
+//           // ✨ NOUVEAU: Indicateur profil incomplet
+//           if (user != null && !user.profileCompleted) ...[
+//             const SizedBox(height: 16),
+//             Container(
+//               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+//               decoration: BoxDecoration(
+//                 color: Colors.orange.withOpacity(0.1),
+//                 borderRadius: BorderRadius.circular(20),
+//                 border: Border.all(color: Colors.orange),
+//               ),
+//               child: Row(
+//                 mainAxisSize: MainAxisSize.min,
+//                 children: [
+//                   const Icon(
+//                     Icons.warning_amber,
+//                     color: Colors.orange,
+//                     size: 16,
+//                   ),
+//                   const SizedBox(width: 8),
+//                   Text(
+//                     'Profil incomplet (${user.completionPercentage}%)',
+//                     style: const TextStyle(
+//                       color: Colors.orange,
+//                       fontWeight: FontWeight.bold,
+//                       fontSize: 12,
+//                     ),
+//                   ),
+//                 ],
+//               ),
+//             ),
+//           ],
+//
+//           const SizedBox(height: 32),
+//
+//           // Stats Card
+//           Card(
+//             child: Padding(
+//               padding: const EdgeInsets.all(16),
+//               child: Row(
+//                 mainAxisAlignment: MainAxisAlignment.spaceAround,
+//                 children: [
+//                   _StatItem(
+//                     icon: Icons.photo,
+//                     label: 'Photos',
+//                     value: '${user?.photos.length ?? 0}',
+//                   ),
+//                   _StatItem(icon: Icons.favorite, label: 'Matches', value: '0'),
+//                   _StatItem(icon: Icons.chat, label: 'Messages', value: '0'),
+//                 ],
+//               ),
+//             ),
+//           ),
+//
+//           const SizedBox(height: 32),
+//
+//           // ✨ NOUVEAU: Bouton pour compléter le profil si incomplet
+//           if (user != null && !user.profileCompleted)
+//             FilledButton.icon(
+//               onPressed: () {
+//                 Navigator.push(
+//                   context,
+//                   MaterialPageRoute(
+//                     builder: (_) => const ProfileCompletionScreen(),
+//                   ),
+//                 );
+//               },
+//               icon: const Icon(Icons.edit),
+//               label: const Text('Compléter mon profil'),
+//               style: FilledButton.styleFrom(
+//                 padding: const EdgeInsets.symmetric(
+//                   horizontal: 24,
+//                   vertical: 12,
+//                 ),
+//               ),
+//             ),
+//
+//           if (user != null && !user.profileCompleted)
+//             const SizedBox(height: 16),
+//
+//           // Menu Items
+//           ListTile(
+//             leading: const Icon(Icons.edit),
+//             title: const Text('Modifier le profil'),
+//             trailing: const Icon(Icons.chevron_right),
+//             onTap: () {
+//               // TODO: Navigation vers édition profil
+//             },
+//           ),
+//
+//           ListTile(
+//             leading: const Icon(Icons.photo_library),
+//             title: const Text('Mes photos'),
+//             trailing: const Icon(Icons.chevron_right),
+//             onTap: () {
+//               // TODO: Navigation vers galerie
+//             },
+//           ),
+//
+//           ListTile(
+//             leading: const Icon(Icons.settings),
+//             title: const Text('Paramètres'),
+//             trailing: const Icon(Icons.chevron_right),
+//             onTap: () {
+//               // TODO: Navigation vers paramètres
+//             },
+//           ),
+//
+//           ListTile(
+//             leading: const Icon(Icons.help_outline),
+//             title: const Text('Aide & Support'),
+//             trailing: const Icon(Icons.chevron_right),
+//             onTap: () {
+//               // TODO: Navigation vers support
+//             },
+//           ),
+//
+//           const SizedBox(height: 16),
+//
+//           OutlinedButton.icon(
+//             onPressed: () async {
+//               final confirmed = await showDialog<bool>(
+//                 context: context,
+//                 builder: (ctx) => AlertDialog(
+//                   title: const Text('Déconnexion'),
+//                   content: const Text(
+//                     'Voulez-vous vraiment vous déconnecter ?',
+//                   ),
+//                   actions: [
+//                     TextButton(
+//                       onPressed: () => Navigator.pop(ctx, false),
+//                       child: const Text('Annuler'),
+//                     ),
+//                     FilledButton(
+//                       onPressed: () => Navigator.pop(ctx, true),
+//                       child: const Text('Déconnexion'),
+//                     ),
+//                   ],
+//                 ),
+//               );
+//
+//               if (confirmed == true && context.mounted) {
+//                 await context.read<AuthProvider>().signOut();
+//               }
+//             },
+//             icon: const Icon(Icons.logout),
+//             label: const Text('Déconnexion'),
+//             style: OutlinedButton.styleFrom(
+//               foregroundColor: Colors.red,
+//               side: const BorderSide(color: Colors.red),
+//             ),
+//           ),
+//
+//           const SizedBox(height: 32),
+//
+//           // Version
+//           Text(
+//             'Profilum v1.0.0',
+//             style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[400]),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+// }
 
 // Helper Widget for Stats
 class _StatItem extends StatelessWidget {
