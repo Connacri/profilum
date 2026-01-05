@@ -1,10 +1,19 @@
-// lib/app_router.dart - MODIFICATION simple
+// lib/app_router.dart - SYSTÈME DE ROUTING COMPLET
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../providers/auth_provider.dart';
+import 'auth/auth_screen.dart';
+import 'moderator_panel.dart';
+import 'providers/auth_provider.dart';
+import 'screens/admin_dashboard.dart';
+import 'screens/home_screen_complete.dart';
+import 'screens/profile_completion_screen.dart';
+
+// ════════════════════════════════════════════════════════════════
+// 📱 EMAIL VERIFICATION SCREEN
+// ════════════════════════════════════════════════════════════════
 
 class EmailVerificationScreen extends StatefulWidget {
   const EmailVerificationScreen({super.key});
@@ -37,7 +46,6 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    // ✅ Vérification automatique toutes les 3 secondes
     _startAutoCheck();
   }
 
@@ -107,11 +115,9 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
       ),
     );
 
-    // Laisser le temps de voir le message de succès
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
-        Navigator.of(context).pop(); // Ferme le dialog
-        // Le Router va automatiquement rediriger grâce au changement d'état
+        Navigator.of(context).pop();
       }
     });
   }
@@ -145,7 +151,6 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
           ),
         );
 
-        // Reset le flag après 3 secondes
         Future.delayed(const Duration(seconds: 3), () {
           if (mounted) setState(() => _emailSent = false);
         });
@@ -188,7 +193,6 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Icône animée
                   ScaleTransition(
                     scale: _pulseAnimation,
                     child: Container(
@@ -212,10 +216,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 32),
-
-                  // Titre
                   Text(
                     'Vérifiez votre email',
                     style: theme.textTheme.headlineMedium?.copyWith(
@@ -223,10 +224,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                     ),
                     textAlign: TextAlign.center,
                   ),
-
                   const SizedBox(height: 16),
-
-                  // Email
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16,
@@ -244,10 +242,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 24),
-
-                  // Instructions
                   Card(
                     elevation: 0,
                     color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
@@ -347,10 +342,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 24),
-
-                  // Status de vérification automatique
                   if (_isChecking)
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -385,10 +377,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                         ],
                       ),
                     ),
-
                   const SizedBox(height: 24),
-
-                  // Bouton renvoyer
                   OutlinedButton.icon(
                     onPressed: _isResending ? null : _resendEmail,
                     icon: _isResending
@@ -419,10 +408,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                           : theme.colorScheme.primary,
                     ),
                   ),
-
                   const SizedBox(height: 16),
-
-                  // Info spam
                   Text(
                     'Pensez à vérifier vos spams',
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -430,10 +416,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                       fontStyle: FontStyle.italic,
                     ),
                   ),
-
                   const SizedBox(height: 8),
-
-                  // Debug info (à retirer en prod)
                   if (_checkCount > 0)
                     Text(
                       'Vérifications: $_checkCount',
@@ -449,5 +432,219 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
         ),
       ),
     );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🎯 ROUTER CONFIGURATION
+// ════════════════════════════════════════════════════════════════
+
+enum AppRoute {
+  auth,
+  emailVerification,
+  profileCompletion,
+  home,
+  adminDashboard,
+  moderatorPanel,
+}
+
+class AppRouteConfiguration {
+  final AppRoute route;
+  final String? gender;
+
+  AppRouteConfiguration({required this.route, this.gender});
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🎯 ROUTER DELEGATE
+// ════════════════════════════════════════════════════════════════
+
+class AppRouter extends RouterDelegate<AppRouteConfiguration>
+    with
+        ChangeNotifier,
+        PopNavigatorRouterDelegateMixin<AppRouteConfiguration> {
+  @override
+  final GlobalKey<NavigatorState> navigatorKey;
+
+  final AuthProvider authProvider;
+
+  AppRouter(this.authProvider) : navigatorKey = GlobalKey<NavigatorState>() {
+    authProvider.addListener(notifyListeners);
+  }
+
+  @override
+  void dispose() {
+    authProvider.removeListener(notifyListeners);
+    super.dispose();
+  }
+
+  @override
+  AppRouteConfiguration? get currentConfiguration {
+    final status = authProvider.status;
+    final user = authProvider.currentUser;
+
+    switch (status) {
+      case AuthStatus.unauthenticated:
+      case AuthStatus.error:
+      case AuthStatus.accountDeleted:
+        return AppRouteConfiguration(route: AppRoute.auth);
+
+      case AuthStatus.emailVerificationPending:
+        return AppRouteConfiguration(route: AppRoute.emailVerification);
+
+      case AuthStatus.profileIncomplete:
+        return AppRouteConfiguration(route: AppRoute.profileCompletion);
+
+      case AuthStatus.authenticated:
+        // Check role pour admin/moderator
+        if (user?.role == 'admin') {
+          return AppRouteConfiguration(route: AppRoute.adminDashboard);
+        } else if (user?.role == 'moderator') {
+          return AppRouteConfiguration(route: AppRoute.moderatorPanel);
+        }
+        return AppRouteConfiguration(
+          route: AppRoute.home,
+          gender: user?.gender,
+        );
+
+      case AuthStatus.initial:
+      case AuthStatus.loading:
+      default:
+        return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = authProvider.status;
+    final user = authProvider.currentUser;
+
+    debugPrint('🔵 AppRouter build: status=$status, role=${user?.role}');
+
+    return Navigator(
+      key: navigatorKey,
+      pages: [
+        // Loading
+        if (status == AuthStatus.initial || status == AuthStatus.loading)
+          const MaterialPage(
+            child: Scaffold(body: Center(child: CircularProgressIndicator())),
+          ),
+
+        // Auth Screen
+        if (status == AuthStatus.unauthenticated ||
+            status == AuthStatus.error ||
+            status == AuthStatus.accountDeleted)
+          const MaterialPage(child: AuthScreen()),
+
+        // Email Verification
+        if (status == AuthStatus.emailVerificationPending)
+          const MaterialPage(child: EmailVerificationScreen()),
+
+        // Profile Completion
+        if (status == AuthStatus.profileIncomplete)
+          const MaterialPage(child: ProfileCompletionScreen()),
+
+        // Authenticated Routes
+        if (status == AuthStatus.authenticated) ...[
+          // Admin Dashboard
+          if (user?.role == 'admin')
+            const MaterialPage(child: AdminDashboardScreen())
+          // Moderator Panel
+          else if (user?.role == 'moderator')
+            const MaterialPage(child: ModeratorPanelScreen())
+          // Home (Regular User)
+          else
+            MaterialPage(child: HomeScreen(gender: user?.gender)),
+        ],
+      ],
+      onPopPage: (route, result) {
+        if (!route.didPop(result)) {
+          return false;
+        }
+
+        // Ne pas permettre de retour arrière sur auth/email verification
+        if (status == AuthStatus.unauthenticated ||
+            status == AuthStatus.emailVerificationPending) {
+          return false;
+        }
+
+        return true;
+      },
+    );
+  }
+
+  @override
+  Future<void> setNewRoutePath(AppRouteConfiguration configuration) async {
+    // Cette méthode est appelée lors de la navigation deep linking
+    // Pour l'instant, on ne gère pas le deep linking
+    return;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🎯 ROUTE INFORMATION PARSER
+// ════════════════════════════════════════════════════════════════
+
+class AppRouteInformationParser
+    extends RouteInformationParser<AppRouteConfiguration> {
+  @override
+  Future<AppRouteConfiguration> parseRouteInformation(
+    RouteInformation routeInformation,
+  ) async {
+    final uri = Uri.parse(routeInformation.location ?? '/');
+
+    // Parse deep links si nécessaire
+    if (uri.pathSegments.isEmpty) {
+      return AppRouteConfiguration(route: AppRoute.auth);
+    }
+
+    final path = uri.pathSegments.first;
+
+    switch (path) {
+      case 'home':
+        return AppRouteConfiguration(route: AppRoute.home);
+      case 'admin':
+        return AppRouteConfiguration(route: AppRoute.adminDashboard);
+      case 'moderator':
+        return AppRouteConfiguration(route: AppRoute.moderatorPanel);
+      case 'profile-completion':
+        return AppRouteConfiguration(route: AppRoute.profileCompletion);
+      case 'email-verification':
+        return AppRouteConfiguration(route: AppRoute.emailVerification);
+      default:
+        return AppRouteConfiguration(route: AppRoute.auth);
+    }
+  }
+
+  @override
+  RouteInformation? restoreRouteInformation(
+    AppRouteConfiguration configuration,
+  ) {
+    switch (configuration.route) {
+      case AppRoute.auth:
+        return const RouteInformation(location: '/');
+      case AppRoute.emailVerification:
+        return const RouteInformation(location: '/email-verification');
+      case AppRoute.profileCompletion:
+        return const RouteInformation(location: '/profile-completion');
+      case AppRoute.home:
+        return const RouteInformation(location: '/home');
+      case AppRoute.adminDashboard:
+        return const RouteInformation(location: '/admin');
+      case AppRoute.moderatorPanel:
+        return const RouteInformation(location: '/moderator');
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🎯 HELPERS
+// ════════════════════════════════════════════════════════════════
+
+extension NavigationExtension on BuildContext {
+  /// Navigate to a specific route programmatically
+  void navigateTo(AppRoute route) {
+    // Cette méthode peut être utilisée pour forcer la navigation
+    // mais le routing déclaratif gère déjà tout automatiquement
   }
 }
