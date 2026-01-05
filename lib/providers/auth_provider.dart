@@ -303,12 +303,21 @@ class AuthProvider extends ChangeNotifier {
       final event = data.event;
       final session = data.session;
 
+      debugPrint('🔔 Auth event: $event');
+
       if (event == AuthChangeEvent.signedIn && session != null) {
         _handleSignIn(session);
       } else if (event == AuthChangeEvent.signedOut) {
         _handleSignOut();
       } else if (event == AuthChangeEvent.tokenRefreshed && session != null) {
         _handleTokenRefresh(session);
+      } else if (event == AuthChangeEvent.userUpdated && session != null) {
+        // ✅ NOUVEAU : Détection de la vérification d'email
+        if (session.user.emailConfirmedAt != null &&
+            _status == AuthStatus.emailVerificationPending) {
+          debugPrint('✅ Email verified via deep link!');
+          _handleSignIn(session);
+        }
       }
     });
   }
@@ -715,6 +724,46 @@ class AuthProvider extends ChangeNotifier {
         return 'Trop de tentatives. Réessayez plus tard';
       default:
         return e.message;
+    }
+  }
+
+  // ===== EMAIL VERIFICATION =====
+
+  /// Renvoyer l'email de vérification
+  Future<bool> resendVerificationEmail() async {
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) return false;
+
+      await _supabase.auth.resend(type: OtpType.signup, email: user.email!);
+
+      debugPrint('✅ Verification email resent to: ${user.email}');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Resend verification error: $e');
+      _errorMessage = 'Erreur lors de l\'envoi: $e';
+      return false;
+    }
+  }
+
+  /// Vérifier manuellement si l'email est vérifié
+  Future<bool> checkEmailVerification() async {
+    try {
+      final session = await _supabase.auth.refreshSession();
+      final user = session.user;
+
+      if (user == null) return false;
+
+      if (user.emailConfirmedAt != null) {
+        debugPrint('✅ Email verified! Loading profile...');
+        await _loadUserFromSupabase(user.id);
+        return true;
+      }
+
+      return false;
+    } catch (e) {
+      debugPrint('❌ Check verification error: $e');
+      return false;
     }
   }
 
