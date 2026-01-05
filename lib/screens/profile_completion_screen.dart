@@ -1,16 +1,14 @@
-// lib/screens/profile_completion_screen_improved.dart
-import 'dart:io';
-
+// lib/screens/profile_completion_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:uuid/uuid.dart';
 
+import '../models/photo_item.dart';
 import '../models/social_link_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/profile_completion_provider.dart';
-import '../services/image_service.dart';
+import '../widgets/photo_grid_item.dart';
 
 class ProfileCompletionScreen extends StatefulWidget {
   const ProfileCompletionScreen({super.key});
@@ -42,9 +40,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   String? _selectedRelationship;
   List<String> _selectedInterests = [];
   List<SocialLink> _socialLinks = [];
-
-  // Photos
-  File? _profilePhoto;
 
   // State
   bool _isLoadingLocation = false;
@@ -240,9 +235,8 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
 
     final provider = context.read<ProfileCompletionProvider>();
     final authProvider = context.read<AuthProvider>();
-    final userId = authProvider.currentUser!.userId;
 
-    // Mettre à jour les champs (incluant social links)
+    // Mettre à jour les champs
     provider.updateField('full_name', _nameController.text);
     provider.updateField('bio', _bioController.text);
     provider.updateField('city', _cityController.text);
@@ -255,63 +249,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     provider.updateField('education', _selectedEducation);
     provider.updateField('relationship_status', _selectedRelationship);
     provider.updateField('interests', _selectedInterests);
-    provider.updateField(
-      'social_links',
-      _socialLinks,
-    ); // ✅ Sauvegarder les liens
-
-    // Upload photo de profil
-    if (_profilePhoto != null) {
-      try {
-        final url = await provider.imageService.uploadToStorage(
-          imageFile: _profilePhoto!,
-          userId: userId,
-          photoType: PhotoType.profile,
-        );
-
-        if (url != null) {
-          await _supabase.from('photos').insert({
-            'id': const Uuid().v4(),
-            'user_id': userId,
-            'remote_path': url,
-            'type': 'profile',
-            'status': 'pending',
-            'has_watermark': true,
-            'display_order': 0,
-            'uploaded_at': DateTime.now().toIso8601String(),
-          });
-        }
-      } catch (e) {
-        debugPrint('❌ Profile photo error: $e');
-      }
-    }
-
-    // Upload gallery photos
-    final galleryPhotos = provider.galleryPhotos;
-    for (var i = 0; i < galleryPhotos.length; i++) {
-      try {
-        final url = await provider.imageService.uploadToStorage(
-          imageFile: galleryPhotos[i],
-          userId: userId,
-          photoType: PhotoType.gallery,
-        );
-
-        if (url != null) {
-          await _supabase.from('photos').insert({
-            'id': const Uuid().v4(),
-            'user_id': userId,
-            'remote_path': url,
-            'type': 'gallery',
-            'status': 'pending',
-            'has_watermark': false,
-            'display_order': i,
-            'uploaded_at': DateTime.now().toIso8601String(),
-          });
-        }
-      } catch (e) {
-        debugPrint('❌ Gallery photo $i error: $e');
-      }
-    }
+    provider.updateField('social_links', _socialLinks);
 
     // Sauvegarder
     final success = await provider.saveProfile(isSkipped: false);
@@ -617,209 +555,137 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   }
 
   Widget _buildProfilePhotoPage() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Photo de profil',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Choisissez une photo claire de votre visage',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 32),
+    return Consumer<ProfileCompletionProvider>(
+      builder: (context, provider, _) {
+        final profilePhoto = provider.profilePhoto;
 
-          Center(
-            child: GestureDetector(
-              onTap: () {
-                showModalBottomSheet(
-                  context: context,
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(20),
-                    ),
-                  ),
-                  builder: (ctx) => SafeArea(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(height: 16),
-                        Container(
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        ListTile(
-                          leading: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.primaryContainer,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(
-                              Icons.camera_alt,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                          ),
-                          title: const Text('Prendre une photo'),
-                          subtitle: const Text('Utilisez votre caméra'),
-                          onTap: () async {
-                            Navigator.pop(ctx);
-                            final provider = context
-                                .read<ProfileCompletionProvider>();
-                            final photo = await provider.imageService
-                                .captureFromCamera();
-                            if (photo != null) {
-                              setState(() => _profilePhoto = photo);
-                            }
-                          },
-                        ),
-                        ListTile(
-                          leading: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.secondaryContainer,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(
-                              Icons.photo_library,
-                              color: Theme.of(context).colorScheme.secondary,
-                            ),
-                          ),
-                          title: const Text('Choisir depuis la galerie'),
-                          subtitle: const Text('Sélectionnez une photo'),
-                          onTap: () async {
-                            Navigator.pop(ctx);
-                            final provider = context
-                                .read<ProfileCompletionProvider>();
-                            final photo = await provider.imageService
-                                .pickFromGallery();
-                            if (photo != null) {
-                              setState(() => _profilePhoto = photo);
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                    ),
-                  ),
-                );
-              },
-              child: Stack(
-                children: [
-                  Container(
-                    width: 200,
-                    height: 200,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.grey[200],
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.primary,
-                        width: 3,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: _profilePhoto != null
-                        ? ClipOval(
-                            child: Image.file(
-                              _profilePhoto!,
-                              fit: BoxFit.cover,
-                            ),
-                          )
-                        : Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.add_a_photo,
-                                size: 48,
-                                color: Colors.grey[600],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Ajouter une photo',
-                                style: TextStyle(
-                                  color: Colors.grey[600],
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                  ),
-                  if (_profilePhoto != null)
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primary,
-                          shape: BoxShape.circle,
-                        ),
-                        padding: const EdgeInsets.all(8),
-                        child: const Icon(
-                          Icons.edit,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          if (_profilePhoto == null)
-            Card(
-              color: Colors.blue[50],
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Icon(Icons.tips_and_updates, color: Colors.blue[700]),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Conseil: Une photo de profil claire augmente vos chances de match de 40%',
-                        style: TextStyle(color: Colors.blue[900], fontSize: 13),
-                      ),
-                    ),
-                  ],
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Photo de profil',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-            ),
-        ],
-      ),
+              const SizedBox(height: 8),
+              Text(
+                'Choisissez une photo claire de votre visage',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 32),
+
+              Center(
+                child: GestureDetector(
+                  onTap: () => _showPhotoSourceDialog(isProfile: true),
+                  child: Stack(
+                    children: [
+                      Container(
+                        width: 200,
+                        height: 200,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.grey[200],
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.primary,
+                            width: 3,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 20,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: profilePhoto != null
+                            ? ClipOval(child: _buildPhotoPreview(profilePhoto))
+                            : Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.add_a_photo,
+                                    size: 48,
+                                    color: Colors.grey[600],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Ajouter une photo',
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                      if (profilePhoto != null)
+                        Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primary,
+                              shape: BoxShape.circle,
+                            ),
+                            padding: const EdgeInsets.all(8),
+                            child: const Icon(
+                              Icons.edit,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              if (profilePhoto == null)
+                Card(
+                  color: Colors.blue[50],
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Icon(Icons.tips_and_updates, color: Colors.blue[700]),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Conseil: Une photo de profil claire augmente vos chances de match de 40%',
+                            style: TextStyle(
+                              color: Colors.blue[900],
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 
   Widget _buildGalleryPhotosPage() {
     return Consumer<ProfileCompletionProvider>(
       builder: (context, provider, _) {
+        if (provider.isLoadingPhotos) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
         final galleryPhotos = provider.galleryPhotos;
         final canAddMore = galleryPhotos.length < 6;
+        final theme = Theme.of(context);
 
         return SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -835,14 +701,16 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                       children: [
                         Text(
                           'Photos de galerie',
-                          style: Theme.of(context).textTheme.headlineSmall
-                              ?.copyWith(fontWeight: FontWeight.bold),
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           'Ajoutez 3 à 6 photos',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(color: Colors.grey[600]),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: Colors.grey[600],
+                          ),
                         ),
                       ],
                     ),
@@ -887,7 +755,14 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                   if (index == galleryPhotos.length) {
                     return _buildAddPhotoCard();
                   }
-                  return _buildPhotoCard(galleryPhotos[index], index);
+
+                  final photo = galleryPhotos[index];
+                  return PhotoGridItem(
+                    photo: photo,
+                    index: index,
+                    onTap: () {},
+                    onRemove: () => provider.removeGalleryPhoto(index),
+                  );
                 },
               ),
 
@@ -922,74 +797,111 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     );
   }
 
+  // ✅ Nouveau helper pour afficher PhotoItem
+  Widget _buildPhotoPreview(PhotoItem photo) {
+    if (photo.source == PhotoSource.remote) {
+      return Image.network(
+        photo.remotePath!,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => Container(
+          color: Colors.grey[300],
+          child: const Icon(Icons.broken_image, color: Colors.grey),
+        ),
+      );
+    } else {
+      return Image.file(
+        photo.localFile!,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => Container(
+          color: Colors.grey[300],
+          child: const Icon(Icons.broken_image, color: Colors.grey),
+        ),
+      );
+    }
+  }
+
+  void _showPhotoSourceDialog({required bool isProfile}) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.camera_alt,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              title: const Text('Prendre une photo'),
+              onTap: () {
+                Navigator.pop(ctx);
+                if (isProfile) {
+                  context.read<ProfileCompletionProvider>().setProfilePhoto(
+                    fromCamera: true,
+                  );
+                } else {
+                  context.read<ProfileCompletionProvider>().addGalleryPhotos(
+                    fromCamera: true,
+                  );
+                }
+              },
+            ),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.photo_library,
+                  color: Theme.of(context).colorScheme.secondary,
+                ),
+              ),
+              title: const Text('Galerie'),
+              onTap: () {
+                Navigator.pop(ctx);
+                if (isProfile) {
+                  context.read<ProfileCompletionProvider>().setProfilePhoto(
+                    fromCamera: false,
+                  );
+                } else {
+                  context.read<ProfileCompletionProvider>().addGalleryPhotos(
+                    fromCamera: false,
+                  );
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildAddPhotoCard() {
     return InkWell(
-      onTap: () {
-        showModalBottomSheet(
-          context: context,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          builder: (ctx) => SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 16),
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      Icons.camera_alt,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  title: const Text('Prendre une photo'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    context.read<ProfileCompletionProvider>().addGalleryPhotos(
-                      fromCamera: true,
-                    );
-                  },
-                ),
-                ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.secondaryContainer,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      Icons.photo_library,
-                      color: Theme.of(context).colorScheme.secondary,
-                    ),
-                  ),
-                  title: const Text('Galerie'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    context.read<ProfileCompletionProvider>().addGalleryPhotos(
-                      fromCamera: false,
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        );
-      },
+      onTap: () => _showPhotoSourceDialog(isProfile: false),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
@@ -998,7 +910,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
           border: Border.all(
             color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
             width: 2,
-            style: BorderStyle.solid,
           ),
         ),
         child: Column(
@@ -1024,55 +935,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     );
   }
 
-  Widget _buildPhotoCard(File photo, int index) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Image.file(photo, fit: BoxFit.cover),
-        ),
-        Positioned(
-          top: 4,
-          right: 4,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.6),
-              shape: BoxShape.circle,
-            ),
-            child: IconButton(
-              icon: const Icon(Icons.close, color: Colors.white, size: 18),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              onPressed: () => context
-                  .read<ProfileCompletionProvider>()
-                  .removeGalleryPhoto(index),
-            ),
-          ),
-        ),
-        Positioned(
-          bottom: 4,
-          left: 4,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.6),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              '${index + 1}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
+  // Les autres pages (Personality, Details, Interests) restent inchangées
   Widget _buildPersonalityPage() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -1246,7 +1109,6 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
 
           const SizedBox(height: 24),
 
-          // Section Réseaux Sociaux
           _buildSocialLinksSection(),
         ],
       ),

@@ -52,12 +52,14 @@ class _ProfilePageState extends State<ProfilePage> {
             ?.remotePath;
 
         _photoUrls = approved
-            .where((p) => p.type == 'gallery' || p.type == 'cover')
+            .where((p) => p.type == 'gallery' && p.remotePath != null)
             .map((p) => p.remotePath!)
             .toList();
 
         _isLoadingPhotos = false;
       });
+
+      debugPrint('✅ Profile loaded: ${_photoUrls.length} gallery photos');
     } catch (e) {
       debugPrint('❌ Load photos error: $e');
       setState(() => _isLoadingPhotos = false);
@@ -388,8 +390,14 @@ class _ProfilePageState extends State<ProfilePage> {
                   leading: const Icon(Icons.edit),
                   title: const Text('Modifier le profil'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () {},
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ProfileCompletionScreen(),
+                    ),
+                  ),
                 ),
+
                 ListTile(
                   leading: const Icon(Icons.settings),
                   title: const Text('Paramètres'),

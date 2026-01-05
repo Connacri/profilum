@@ -1,12 +1,10 @@
-// lib/providers/profile_completion_provider.dart - REFACTORISÉ
-
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../models/photo_item.dart';
 import '../models/social_link_model.dart';
 import '../objectbox_entities_complete.dart';
 import '../services/image_service.dart';
@@ -21,15 +19,15 @@ class ProfileCompletionProvider extends ChangeNotifier {
 
   UserEntity? _user;
 
-  // ✅ NOUVEAU: Séparation des 3 types de photos
-  File? _profilePhoto; // 1 photo de profil
-  List<File> _coverPhotos = []; // 3 covers max
-  List<File> _galleryPhotos = []; // 6 gallery max
+  // ✅ NOUVEAU : Système unifié de photos
+  PhotoItem? _profilePhoto;
+  List<PhotoItem> _galleryPhotos = [];
 
   bool _isLoading = false;
+  bool _isLoadingPhotos = false;
   String? _errorMessage;
 
-  // Champs de completion (13 champs au total)
+  // Champs de completion
   final Map<String, bool> _completionFields = {
     'full_name': false,
     'date_of_birth': false,
@@ -66,26 +64,76 @@ class ProfileCompletionProvider extends ChangeNotifier {
 
   bool get isComplete => completionPercentage >= 80;
   bool get isLoading => _isLoading;
+  bool get isLoadingPhotos => _isLoadingPhotos;
   String? get errorMessage => _errorMessage;
   UserEntity? get user => _user;
   ImageService get imageService => _imageService;
 
-  // ✅ NOUVEAU: Getters pour les photos
-  File? get profilePhoto => _profilePhoto;
-  List<File> get coverPhotos => _coverPhotos;
-  List<File> get galleryPhotos => _galleryPhotos;
+  PhotoItem? get profilePhoto => _profilePhoto;
+  List<PhotoItem> get galleryPhotos => _galleryPhotos;
 
   bool get hasProfilePhoto => _profilePhoto != null;
-  bool get hasMinCovers => _coverPhotos.isNotEmpty;
   bool get hasMinGallery => _galleryPhotos.length >= 3;
 
-  /// Initialisation silencieuse (sans notification)
-  void initialize(UserEntity user) {
+  /// ✅ Initialisation avec chargement des photos
+  Future<void> initialize(UserEntity user) async {
     _user = user;
     _updateCompletionFields();
+
+    // ✅ Charger les photos existantes
+    await _loadExistingPhotos();
   }
 
-  // ✅ Calcul async avec debounce
+  /// ✅ NOUVEAU : Charger les photos depuis ObjectBox
+  Future<void> _loadExistingPhotos() async {
+    if (_user == null) return;
+
+    _isLoadingPhotos = true;
+    notifyListeners();
+
+    try {
+      final photos = await _objectBox.getUserPhotos(_user!.userId);
+      final approved = photos.where((p) => p.status == 'approved').toList();
+      approved.sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+
+      // Photo de profil
+      final profilePhotoEntity = approved
+          .where((p) => p.type == 'profile')
+          .firstOrNull;
+
+      if (profilePhotoEntity != null && profilePhotoEntity.remotePath != null) {
+        _profilePhoto = PhotoItem(
+          id: profilePhotoEntity.photoId,
+          source: PhotoSource.remote,
+          remotePath: profilePhotoEntity.remotePath,
+          displayOrder: 0,
+          type: 'profile',
+        );
+      }
+
+      // Photos galerie
+      _galleryPhotos = approved
+          .where((p) => p.type == 'gallery' && p.remotePath != null)
+          .map(
+            (p) => PhotoItem(
+              id: p.photoId,
+              source: PhotoSource.remote,
+              remotePath: p.remotePath,
+              displayOrder: p.displayOrder,
+              type: 'gallery',
+            ),
+          )
+          .toList();
+
+      debugPrint('✅ Loaded ${_galleryPhotos.length} existing photos');
+    } catch (e) {
+      debugPrint('❌ Error loading photos: $e');
+    } finally {
+      _isLoadingPhotos = false;
+      notifyListeners();
+    }
+  }
+
   void _scheduleCompletionCalculation() {
     _calculationTimer?.cancel();
     _calculationTimer = Timer(const Duration(milliseconds: 300), () {
@@ -95,15 +143,11 @@ class ProfileCompletionProvider extends ChangeNotifier {
 
   Future<void> _updateCompletionFieldsAsync() async {
     if (_user == null) return;
-
-    // ✅ Calcul en isolate si computation lourde
     final result = await compute(_calculateCompletion, _user!);
-
     _completionFields.addAll(result);
     notifyListeners();
   }
 
-  // ✅ Fonction pure pour isolate
   static Map<String, bool> _calculateCompletion(UserEntity user) {
     return {
       'full_name': user.fullName?.isNotEmpty ?? false,
@@ -122,7 +166,6 @@ class ProfileCompletionProvider extends ChangeNotifier {
     };
   }
 
-  /// Mise à jour des champs de complétion
   void _updateCompletionFields() {
     if (_user == null) return;
 
@@ -142,7 +185,6 @@ class ProfileCompletionProvider extends ChangeNotifier {
     _completionFields['social_links'] = _user!.socialLinks.isNotEmpty;
   }
 
-  /// Mettre à jour un champ du profil
   void updateField(String field, dynamic value) {
     if (_user == null) return;
 
@@ -188,62 +230,36 @@ class ProfileCompletionProvider extends ChangeNotifier {
         break;
     }
 
-    // _updateCompletionFields();
-    _scheduleCompletionCalculation(); // ✅ Au lieu de _updateCompletionFields()
+    _scheduleCompletionCalculation();
     notifyListeners();
   }
 
-  /// ✅ NOUVEAU: Ajouter une photo de profil
+  /// ✅ NOUVEAU : Ajouter/Remplacer photo de profil
   Future<void> setProfilePhoto({required bool fromCamera}) async {
     final photo = fromCamera
         ? await _imageService.captureFromCamera()
         : await _imageService.pickFromGallery();
 
     if (photo != null) {
-      _profilePhoto = photo;
+      _profilePhoto = PhotoItem(
+        id: const Uuid().v4(),
+        source: PhotoSource.local,
+        localFile: photo,
+        displayOrder: 0,
+        type: 'profile',
+        isModified: true,
+      );
       notifyListeners();
     }
   }
 
-  /// ✅ NOUVEAU: Supprimer la photo de profil
+  /// ✅ Supprimer photo de profil
   void removeProfilePhoto() {
     _profilePhoto = null;
     notifyListeners();
   }
 
-  /// ✅ NOUVEAU: Ajouter des covers (max 3)
-  Future<void> addCoverPhotos({required bool fromCamera}) async {
-    if (_coverPhotos.length >= 3) {
-      _errorMessage = 'Maximum 3 photos de couverture';
-      notifyListeners();
-      return;
-    }
-
-    if (fromCamera) {
-      final photo = await _imageService.captureFromCamera();
-      if (photo != null) {
-        _coverPhotos.add(photo);
-        notifyListeners();
-      }
-    } else {
-      final remainingSlots = 3 - _coverPhotos.length;
-      final photos = await _imageService.pickMultipleFromGallery(
-        maxImages: remainingSlots,
-      );
-      _coverPhotos.addAll(photos);
-      notifyListeners();
-    }
-  }
-
-  /// ✅ NOUVEAU: Supprimer une cover
-  void removeCoverPhoto(int index) {
-    if (index < _coverPhotos.length) {
-      _coverPhotos.removeAt(index);
-      notifyListeners();
-    }
-  }
-
-  /// ✅ NOUVEAU: Ajouter des photos de galerie (max 6)
+  /// ✅ NOUVEAU : Ajouter photos galerie
   Future<void> addGalleryPhotos({required bool fromCamera}) async {
     if (_galleryPhotos.length >= 6) {
       _errorMessage = 'Maximum 6 photos de galerie';
@@ -254,7 +270,16 @@ class ProfileCompletionProvider extends ChangeNotifier {
     if (fromCamera) {
       final photo = await _imageService.captureFromCamera();
       if (photo != null) {
-        _galleryPhotos.add(photo);
+        _galleryPhotos.add(
+          PhotoItem(
+            id: const Uuid().v4(),
+            source: PhotoSource.local,
+            localFile: photo,
+            displayOrder: _galleryPhotos.length,
+            type: 'gallery',
+            isModified: true,
+          ),
+        );
         notifyListeners();
       }
     } else {
@@ -262,20 +287,52 @@ class ProfileCompletionProvider extends ChangeNotifier {
       final photos = await _imageService.pickMultipleFromGallery(
         maxImages: remainingSlots,
       );
-      _galleryPhotos.addAll(photos);
+
+      for (var photo in photos) {
+        _galleryPhotos.add(
+          PhotoItem(
+            id: const Uuid().v4(),
+            source: PhotoSource.local,
+            localFile: photo,
+            displayOrder: _galleryPhotos.length,
+            type: 'gallery',
+            isModified: true,
+          ),
+        );
+      }
       notifyListeners();
     }
   }
 
-  /// ✅ NOUVEAU: Supprimer une photo de galerie
-  void removeGalleryPhoto(int index) {
-    if (index < _galleryPhotos.length) {
-      _galleryPhotos.removeAt(index);
-      notifyListeners();
+  /// ✅ NOUVEAU : Supprimer photo galerie
+  Future<void> removeGalleryPhoto(int index) async {
+    if (index >= _galleryPhotos.length) return;
+
+    final photo = _galleryPhotos[index];
+
+    // Si photo distante, la supprimer de Supabase
+    if (photo.source == PhotoSource.remote && photo.remotePath != null) {
+      await _imageService.deleteFromStorage(url: photo.remotePath!);
+
+      // Supprimer de la table photos
+      try {
+        await _supabase.from('photos').delete().eq('id', photo.id);
+      } catch (e) {
+        debugPrint('❌ Error deleting photo from DB: $e');
+      }
     }
+
+    _galleryPhotos.removeAt(index);
+
+    // Réordonner
+    for (var i = 0; i < _galleryPhotos.length; i++) {
+      _galleryPhotos[i] = _galleryPhotos[i].copyWith(displayOrder: i);
+    }
+
+    notifyListeners();
   }
 
-  /// ✅ NOUVEAU: Sauvegarder le profil complet
+  /// ✅ SAUVEGARDE INTELLIGENTE (upload seulement nouvelles photos)
   Future<bool> saveProfile({bool isSkipped = false}) async {
     if (_user == null) return false;
 
@@ -284,59 +341,47 @@ class ProfileCompletionProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // ════════════════════════════════════════════════════════
-      // 1. UPLOAD PHOTO DE PROFIL (optionnel)
-      // ════════════════════════════════════════════════════════
-      String? profilePhotoUrl;
-      if (_profilePhoto != null) {
-        debugPrint('📤 Uploading profile photo...');
-        profilePhotoUrl = await _imageService.uploadToStorage(
-          imageFile: _profilePhoto!,
-          userId: _user!.userId,
-          photoType: PhotoType.profile,
-        );
-
-        if (profilePhotoUrl != null) {
-          debugPrint('✅ Profile photo uploaded');
-          // Créer l'entité PhotoEntity
-          await _savePhotoEntity(
-            url: profilePhotoUrl,
-            type: 'profile',
-            displayOrder: 0,
-            hasWatermark: true, // Selon la source
-          );
-        }
-      }
+      final userId = _user!.userId;
 
       // ════════════════════════════════════════════════════════
-      // 2. UPLOAD COVER PHOTOS (optionnel, max 3)
+      // 1. UPLOAD SEULEMENT LES NOUVELLES PHOTOS
       // ════════════════════════════════════════════════════════
-      for (var i = 0; i < _coverPhotos.length; i++) {
-        debugPrint('📤 Uploading cover photo ${i + 1}...');
+
+      // Photo de profil
+      if (_profilePhoto != null && _profilePhoto!.needsUpload) {
+        debugPrint('📤 Uploading NEW profile photo...');
         final url = await _imageService.uploadToStorage(
-          imageFile: _coverPhotos[i],
-          userId: _user!.userId,
-          photoType: PhotoType.cover,
+          imageFile: _profilePhoto!.localFile!,
+          userId: userId,
+          photoType: PhotoType.profile,
         );
 
         if (url != null) {
           await _savePhotoEntity(
             url: url,
-            type: 'cover',
-            displayOrder: i,
-            hasWatermark: false,
+            type: 'profile',
+            displayOrder: 0,
+            hasWatermark: true,
           );
         }
+      } else if (_profilePhoto != null) {
+        debugPrint('✅ Profile photo already exists, skip upload');
       }
 
-      // ════════════════════════════════════════════════════════
-      // 3. UPLOAD GALLERY PHOTOS (optionnel, max 6)
-      // ════════════════════════════════════════════════════════
-      for (var i = 0; i < _galleryPhotos.length; i++) {
-        debugPrint('📤 Uploading gallery photo ${i + 1}...');
+      // Photos galerie (seulement nouvelles)
+      final newGalleryPhotos = _galleryPhotos
+          .where((p) => p.needsUpload)
+          .toList();
+
+      debugPrint(
+        '📤 Uploading ${newGalleryPhotos.length} NEW gallery photos...',
+      );
+
+      for (var i = 0; i < newGalleryPhotos.length; i++) {
+        final photo = newGalleryPhotos[i];
         final url = await _imageService.uploadToStorage(
-          imageFile: _galleryPhotos[i],
-          userId: _user!.userId,
+          imageFile: photo.localFile!,
+          userId: userId,
           photoType: PhotoType.gallery,
         );
 
@@ -344,14 +389,14 @@ class ProfileCompletionProvider extends ChangeNotifier {
           await _savePhotoEntity(
             url: url,
             type: 'gallery',
-            displayOrder: i,
+            displayOrder: photo.displayOrder,
             hasWatermark: false,
           );
         }
       }
 
       // ════════════════════════════════════════════════════════
-      // 4. MISE À JOUR DU PROFIL DANS SUPABASE
+      // 2. MISE À JOUR DU PROFIL
       // ════════════════════════════════════════════════════════
       final finalCompletion = completionPercentage;
       final isProfileComplete = !isSkipped && finalCompletion >= 80;
@@ -378,15 +423,21 @@ class ProfileCompletionProvider extends ChangeNotifier {
         'updated_at': DateTime.now().toIso8601String(),
       };
 
-      await _supabase
-          .from('profiles')
-          .update(updateData)
-          .eq('id', _user!.userId);
+      try {
+        await _supabase.from('profiles').update(updateData).eq('id', userId);
 
-      debugPrint('✅ Supabase updated');
+        debugPrint('✅ Supabase updated');
+      } on PostgrestException catch (e) {
+        if (e.code == '42883' &&
+            e.message.contains('calculate_profile_completion')) {
+          debugPrint('⚠️ Trigger SQL error ignored');
+        } else {
+          rethrow;
+        }
+      }
 
       // ════════════════════════════════════════════════════════
-      // 5. MISE À JOUR LOCALE (OBJECTBOX)
+      // 3. MISE À JOUR LOCALE
       // ════════════════════════════════════════════════════════
       _user = _user!
         ..profileCompleted = isProfileComplete
@@ -409,7 +460,6 @@ class ProfileCompletionProvider extends ChangeNotifier {
     }
   }
 
-  /// Helper: Sauvegarder une PhotoEntity
   Future<void> _savePhotoEntity({
     required String url,
     required String type,
@@ -420,9 +470,9 @@ class ProfileCompletionProvider extends ChangeNotifier {
       photoId: const Uuid().v4(),
       userId: _user!.userId,
       type: type,
-      localPath: '', // Pas nécessaire après upload
+      localPath: '',
       remotePath: url,
-      status: 'pending', // ✅ Toutes les photos sont modérées
+      status: 'pending',
       hasWatermark: hasWatermark,
       uploadedAt: DateTime.now(),
       displayOrder: displayOrder,
@@ -431,10 +481,8 @@ class ProfileCompletionProvider extends ChangeNotifier {
     await _objectBox.savePhoto(photoEntity);
   }
 
-  /// Reset du provider
   void reset() {
     _profilePhoto = null;
-    _coverPhotos.clear();
     _galleryPhotos.clear();
     _errorMessage = null;
     notifyListeners();

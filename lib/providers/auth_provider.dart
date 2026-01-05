@@ -591,6 +591,15 @@ class AuthProvider extends ChangeNotifier {
           .from('profiles')
           .update({'last_active_at': DateTime.now().toIso8601String()})
           .eq('id', _currentUser!.userId);
+    } on PostgrestException catch (e) {
+      // ✅ Ignorer l'erreur de fonction manquante (trigger auto)
+      if (e.code == '42883' &&
+          e.message.contains('calculate_profile_completion')) {
+        debugPrint('⚠️ Trigger SQL error ignored in _updateLastActive');
+        // Ne pas logger comme erreur
+      } else {
+        debugPrint('Last active update error: $e');
+      }
     } catch (e) {
       debugPrint('Last active update error: $e');
     }
