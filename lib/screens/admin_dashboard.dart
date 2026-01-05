@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/auth_provider.dart';
+import '../responsive_helper.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -17,6 +18,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     with SingleTickerProviderStateMixin {
   final _supabase = Supabase.instance.client;
   late AnimationController _animController;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   int _selectedIndex = 0;
   bool _isLoading = true;
@@ -25,12 +27,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   List<Map<String, dynamic>> _users = [];
   String _searchQuery = '';
 
-  // ✅ NOUVEAU: Pagination
+  // Pagination
   int _photosPage = 0;
   int _usersPage = 0;
   final int _pageSize = 50;
   bool _hasMorePhotos = true;
   bool _hasMoreUsers = true;
+  bool _isLoadingMore = false;
+
   @override
   void initState() {
     super.initState();
@@ -48,9 +52,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     super.dispose();
   }
 
-  // Remplace uniquement la méthode _loadData (ligne ~40-95)
-
-  // 4️⃣ MODIFIER _loadData avec pagination (ligne ~40)
   Future<void> _loadData() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
@@ -58,9 +59,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     try {
       final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
 
-      debugPrint('🔵 Loading admin data...');
-
-      // Stats (inchangé)
+      // Stats
       final activeUsers = await _supabase
           .from('profiles')
           .select('id')
@@ -74,11 +73,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           .eq('status', 'pending')
           .count();
 
-      debugPrint(
-        '📊 Stats: ${activeUsers.count} active, ${totalUsers.count} total, ${pendingCount.count} pending',
-      );
-
-      // ✅ Photos avec pagination
+      // Photos avec pagination
       final photos = await _supabase
           .from('photos')
           .select(
@@ -87,31 +82,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           .eq('status', 'pending')
           .not('remote_path', 'is', null)
           .order('uploaded_at', ascending: false)
-          .range(
-            _photosPage * _pageSize,
-            (_photosPage + 1) * _pageSize - 1,
-          ); // ✅ PAGINATION
+          .range(_photosPage * _pageSize, (_photosPage + 1) * _pageSize - 1);
 
       _hasMorePhotos = photos.length == _pageSize;
 
-      // ✅ Users avec pagination
+      // Users avec pagination
       final users = await _supabase
           .from('profiles')
           .select('id, email, full_name, role, created_at, profile_completed')
           .order('created_at', ascending: false)
-          .range(
-            _usersPage * _pageSize,
-            (_usersPage + 1) * _pageSize - 1,
-          ); // ✅ PAGINATION
+          .range(_usersPage * _pageSize, (_usersPage + 1) * _pageSize - 1);
 
       _hasMoreUsers = users.length == _pageSize;
-
-      debugPrint(
-        '📸 Photos: ${photos.length} (page $_photosPage, hasMore: $_hasMorePhotos)',
-      );
-      debugPrint(
-        '👥 Users: ${users.length} (page $_usersPage, hasMore: $_hasMoreUsers)',
-      );
 
       if (!mounted) return;
 
@@ -135,171 +117,320 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  // ✅ NOUVEAU: Charger page suivante
   Future<void> _loadMorePhotos() async {
-    if (!_hasMorePhotos || _isLoading) return;
+    if (!_hasMorePhotos || _isLoadingMore) return;
+
+    setState(() => _isLoadingMore = true);
     _photosPage++;
-    await _loadData();
+
+    try {
+      final photos = await _supabase
+          .from('photos')
+          .select(
+            'id, user_id, remote_path, uploaded_at, status, type, profiles!photos_user_id_fkey(full_name, email)',
+          )
+          .eq('status', 'pending')
+          .not('remote_path', 'is', null)
+          .order('uploaded_at', ascending: false)
+          .range(_photosPage * _pageSize, (_photosPage + 1) * _pageSize - 1);
+
+      _hasMorePhotos = photos.length == _pageSize;
+
+      if (mounted) {
+        setState(() {
+          _pendingPhotos.addAll(List<Map<String, dynamic>>.from(photos));
+          _isLoadingMore = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Load more error: $e');
+      if (mounted) {
+        setState(() => _isLoadingMore = false);
+      }
+    }
   }
 
   Future<void> _loadMoreUsers() async {
-    if (!_hasMoreUsers || _isLoading) return;
+    if (!_hasMoreUsers || _isLoadingMore) return;
+
+    setState(() => _isLoadingMore = true);
     _usersPage++;
-    await _loadData();
+
+    try {
+      final users = await _supabase
+          .from('profiles')
+          .select('id, email, full_name, role, created_at, profile_completed')
+          .order('created_at', ascending: false)
+          .range(_usersPage * _pageSize, (_usersPage + 1) * _pageSize - 1);
+
+      _hasMoreUsers = users.length == _pageSize;
+
+      if (mounted) {
+        setState(() {
+          _users.addAll(List<Map<String, dynamic>>.from(users));
+          _isLoadingMore = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Load more error: $e');
+      if (mounted) {
+        setState(() => _isLoadingMore = false);
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Scaffold(
-      body: Row(
-        children: [
-          _buildSidebar(theme),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _buildContent(theme),
+    // 🎯 LayoutBuilder pour adapter l'UI selon la taille
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile =
+            constraints.maxWidth < ResponsiveHelper.mobileBreakpoint;
+
+        return Scaffold(
+          key: _scaffoldKey,
+          // 📱 Drawer sur mobile uniquement
+          drawer: isMobile ? _buildDrawer(theme) : null,
+          body: Row(
+            children: [
+              // 🖥️ Sidebar fixe sur desktop/tablet
+              if (!isMobile) _buildSidebar(theme),
+
+              // 📄 Contenu principal
+              Expanded(
+                child: Column(
+                  children: [
+                    // 📱 AppBar sur mobile pour ouvrir le drawer
+                    if (isMobile) _buildMobileAppBar(theme),
+
+                    // Contenu
+                    Expanded(
+                      child: _isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _buildContent(theme),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// 📱 AppBar pour mobile
+  Widget _buildMobileAppBar(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.menu, color: Colors.white),
+                onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+              ),
+              const SizedBox(width: 12),
+              const Icon(Icons.shield, color: Colors.white, size: 24),
+              const SizedBox(width: 8),
+              const Text(
+                'ADMIN',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              const Spacer(),
+              if (_stats['pending_photos'] != null &&
+                  _stats['pending_photos'] > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_stats['pending_photos']}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
+  /// 📱 Drawer pour mobile
+  Widget _buildDrawer(ThemeData theme) {
+    return Drawer(
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              _buildDrawerHeader(theme),
+              const Divider(color: Colors.white24),
+              Expanded(child: _buildMenuItems(theme)),
+              const Divider(color: Colors.white24),
+              _buildLogoutButton(theme),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 🖥️ Sidebar fixe pour desktop
   Widget _buildSidebar(ThemeData theme) {
     return Container(
-      width: 280,
+      width: ResponsiveHelper.getSidebarWidth(context),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 12,
+            offset: const Offset(2, 0),
+          ),
+        ],
       ),
       child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              children: [
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 3),
+          _buildDrawerHeader(theme),
+          const Divider(color: Colors.white24),
+          Expanded(child: _buildMenuItems(theme)),
+          const Divider(color: Colors.white24),
+          _buildLogoutButton(theme),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDrawerHeader(ThemeData theme) {
+    return Container(
+      padding: EdgeInsets.all(context.isMobile ? 24 : 32),
+      child: Column(
+        children: [
+          Hero(
+            tag: 'admin_shield',
+            child: Container(
+              width: context.isMobile ? 60 : 80,
+              height: context.isMobile ? 60 : 80,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 3),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   ),
-                  child: const Icon(
-                    Icons.shield,
-                    size: 40,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'ADMIN',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Dashboard',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 14,
-                  ),
-                ),
-              ],
+                ],
+              ),
+              child: Icon(
+                Icons.shield,
+                size: context.isMobile ? 30 : 40,
+                color: Colors.white,
+              ),
             ),
           ),
-
-          const Divider(color: Colors.white24),
-
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              children: [
-                _buildMenuItem(
-                  icon: Icons.dashboard_rounded,
-                  label: 'Vue d\'ensemble',
-                  index: 0,
-                  theme: theme,
-                ),
-                _buildMenuItem(
-                  icon: Icons.photo_library_rounded,
-                  label: 'Modération',
-                  index: 1,
-                  badge: _stats['pending_photos']?.toString(),
-                  theme: theme,
-                ),
-                _buildMenuItem(
-                  icon: Icons.people_rounded,
-                  label: 'Utilisateurs',
-                  index: 2,
-                  theme: theme,
-                ),
-                _buildMenuItem(
-                  icon: Icons.analytics_rounded,
-                  label: 'Statistiques',
-                  index: 3,
-                  theme: theme,
-                ),
-                _buildMenuItem(
-                  icon: Icons.settings_rounded,
-                  label: 'Paramètres',
-                  index: 4,
-                  theme: theme,
-                ),
-              ],
+          SizedBox(height: context.isMobile ? 12 : 16),
+          Text(
+            'ADMIN',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: context.isMobile ? 20 : 24,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 2,
             ),
           ),
-
-          const Divider(color: Colors.white24),
-
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: OutlinedButton.icon(
-              onPressed: () async {
-                final confirmed = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Déconnexion'),
-                    content: const Text('Confirmer la déconnexion ?'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('Annuler'),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Déconnexion'),
-                      ),
-                    ],
-                  ),
-                );
-
-                if (confirmed == true && context.mounted) {
-                  await context.read<AuthProvider>().signOut();
-                }
-              },
-              icon: const Icon(Icons.logout, color: Colors.white),
-              label: const Text(
-                'Déconnexion',
-                style: TextStyle(color: Colors.white),
-              ),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Colors.white),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
+          const SizedBox(height: 4),
+          Text(
+            'Dashboard',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: context.isMobile ? 12 : 14,
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildMenuItems(ThemeData theme) {
+    return ListView(
+      padding: EdgeInsets.symmetric(vertical: context.isMobile ? 4 : 8),
+      children: [
+        _buildMenuItem(
+          icon: Icons.dashboard_rounded,
+          label: 'Vue d\'ensemble',
+          index: 0,
+          theme: theme,
+        ),
+        _buildMenuItem(
+          icon: Icons.photo_library_rounded,
+          label: 'Modération',
+          index: 1,
+          badge: _stats['pending_photos']?.toString(),
+          theme: theme,
+        ),
+        _buildMenuItem(
+          icon: Icons.people_rounded,
+          label: 'Utilisateurs',
+          index: 2,
+          theme: theme,
+        ),
+        _buildMenuItem(
+          icon: Icons.analytics_rounded,
+          label: 'Statistiques',
+          index: 3,
+          theme: theme,
+        ),
+        _buildMenuItem(
+          icon: Icons.settings_rounded,
+          label: 'Paramètres',
+          index: 4,
+          theme: theme,
+        ),
+      ],
     );
   }
 
@@ -313,35 +444,53 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final isSelected = _selectedIndex == index;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: EdgeInsets.symmetric(
+        horizontal: context.isMobile ? 8 : 12,
+        vertical: 4,
+      ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => setState(() => _selectedIndex = index),
+          onTap: () {
+            setState(() => _selectedIndex = index);
+            // Fermer le drawer si mobile
+            if (context.isMobile) {
+              Navigator.of(context).pop();
+            }
+          },
           borderRadius: BorderRadius.circular(12),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: EdgeInsets.symmetric(
+              horizontal: context.isMobile ? 16 : 20,
+              vertical: context.isMobile ? 12 : 16,
+            ),
             decoration: BoxDecoration(
               color: isSelected
-                  ? Colors.white.withOpacity(0.2)
+                  ? Colors.white.withOpacity(0.25)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: isSelected
-                    ? Colors.white.withOpacity(0.3)
+                    ? Colors.white.withOpacity(0.4)
                     : Colors.transparent,
+                width: 2,
               ),
             ),
             child: Row(
               children: [
-                Icon(icon, color: Colors.white, size: 24),
-                const SizedBox(width: 16),
+                Icon(
+                  icon,
+                  color: Colors.white,
+                  size: context.isMobile ? 22 : 24,
+                ),
+                SizedBox(width: context.isMobile ? 12 : 16),
                 Expanded(
                   child: Text(
                     label,
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 16,
+                      fontSize: context.isMobile ? 14 : 16,
                       fontWeight: isSelected
                           ? FontWeight.bold
                           : FontWeight.w500,
@@ -357,6 +506,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     decoration: BoxDecoration(
                       color: Colors.red,
                       borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.red.withOpacity(0.4),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: Text(
                       badge,
@@ -370,6 +526,49 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLogoutButton(ThemeData theme) {
+    return Padding(
+      padding: EdgeInsets.all(context.isMobile ? 12 : 16),
+      child: OutlinedButton.icon(
+        onPressed: () async {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Déconnexion'),
+              content: const Text('Confirmer la déconnexion ?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Annuler'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Déconnexion'),
+                ),
+              ],
+            ),
+          );
+
+          if (confirmed == true && mounted) {
+            await context.read<AuthProvider>().signOut();
+          }
+        },
+        icon: const Icon(Icons.logout, color: Colors.white),
+        label: Text(
+          'Déconnexion',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: context.isMobile ? 14 : 16,
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          side: const BorderSide(color: Colors.white, width: 2),
+          padding: EdgeInsets.symmetric(vertical: context.isMobile ? 12 : 16),
         ),
       ),
     );
@@ -396,151 +595,109 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return RefreshIndicator(
       onRefresh: _loadData,
       child: ListView(
-        padding: const EdgeInsets.all(32),
+        padding: context.adaptivePadding,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Vue d\'ensemble',
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  // ✅ FIX: Retirer locale français
-                  Text(
-                    DateFormat('EEEE d MMMM yyyy').format(DateTime.now()),
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-              IconButton.filled(
-                onPressed: _loadData,
-                icon: const Icon(Icons.refresh),
-                tooltip: 'Actualiser',
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 32),
-
-          GridView.count(
-            crossAxisCount: 4,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 16,
-            childAspectRatio: 2.5, // ✅ FIX: 1.8 → 2.2 (plus d'espace vertical)
-            children: [
-              _buildStatCard(
-                theme: theme,
-                icon: Icons.people_rounded,
-                label: 'Utilisateurs actifs',
-                value: _stats['active_users']?.toString() ?? '0',
-                color: Colors.blue,
-                trend: '+12%',
-              ),
-              _buildStatCard(
-                theme: theme,
-                icon: Icons.group_rounded,
-                label: 'Total utilisateurs',
-                value: _stats['total_users']?.toString() ?? '0',
-                color: Colors.green,
-                trend: '+8%',
-              ),
-              _buildStatCard(
-                theme: theme,
-                icon: Icons.pending_rounded,
-                label: 'En attente',
-                value: _stats['pending_photos']?.toString() ?? '0',
-                color: Colors.orange,
-                trend: '-5%',
-              ),
-              _buildStatCard(
-                theme: theme,
-                icon: Icons.attach_money_rounded,
-                label: 'Revenus',
-                value: '€0',
-                color: Colors.purple,
-                trend: '+0%',
-              ),
-            ],
-          ),
-          // Dans _buildModeration, après le GridView (ligne ~560)
-          if (_hasMorePhotos && _pendingPhotos.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: OutlinedButton.icon(
-                  onPressed: _loadMorePhotos,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Charger plus de photos'),
-                ),
-              ),
-            ),
-
-          // Dans _buildUsers, après le Card (ligne ~640)
-          if (_hasMoreUsers && _users.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: OutlinedButton.icon(
-                  onPressed: _loadMoreUsers,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Charger plus d\'utilisateurs'),
-                ),
-              ),
-            ),
-          const SizedBox(height: 32),
-
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: theme.dividerColor),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Activité récente',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () => setState(() => _selectedIndex = 2),
-                        child: const Text('Voir tout'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  ..._users
-                      .take(5)
-                      .map(
-                        (user) => _buildActivityItem(theme: theme, user: user),
-                      ),
-                ],
-              ),
-            ),
-          ),
+          _buildOverviewHeader(theme),
+          SizedBox(height: context.adaptiveSpacing * 2),
+          _buildStatsGrid(theme),
+          SizedBox(height: context.adaptiveSpacing * 2),
+          _buildRecentActivity(theme),
         ],
       ),
     );
   }
 
-  // Remplace uniquement la méthode _buildStatCard (ligne ~390-440)
+  Widget _buildOverviewHeader(ThemeData theme) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Vue d\'ensemble',
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  fontSize: ResponsiveHelper.getAdaptiveFontSize(context, 28),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                DateFormat('EEEE d MMMM yyyy').format(DateTime.now()),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!context.isMobile)
+          IconButton.filled(
+            onPressed: _loadData,
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Actualiser',
+          ),
+      ],
+    );
+  }
+
+  Widget _buildStatsGrid(ThemeData theme) {
+    // 🎯 LayoutBuilder pour calculer dynamiquement les colonnes
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = ResponsiveHelper.getGridColumns(
+          context,
+          customMobile: 1,
+          customTablet: 2,
+          customDesktop: 4,
+        );
+
+        return GridView.count(
+          crossAxisCount: columns,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: context.adaptiveSpacing,
+          crossAxisSpacing: context.adaptiveSpacing,
+          childAspectRatio: context.isMobile ? 1.2 : 2.5,
+          children: [
+            _buildStatCard(
+              theme: theme,
+              icon: Icons.people_rounded,
+              label: 'Utilisateurs actifs',
+              value: _stats['active_users']?.toString() ?? '0',
+              color: Colors.blue,
+              trend: '+12%',
+            ),
+            _buildStatCard(
+              theme: theme,
+              icon: Icons.group_rounded,
+              label: 'Total utilisateurs',
+              value: _stats['total_users']?.toString() ?? '0',
+              color: Colors.green,
+              trend: '+8%',
+            ),
+            _buildStatCard(
+              theme: theme,
+              icon: Icons.pending_rounded,
+              label: 'En attente',
+              value: _stats['pending_photos']?.toString() ?? '0',
+              color: Colors.orange,
+              trend: '-5%',
+            ),
+            _buildStatCard(
+              theme: theme,
+              icon: Icons.attach_money_rounded,
+              label: 'Revenus',
+              value: '€0',
+              color: Colors.purple,
+              trend: '+0%',
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   Widget _buildStatCard({
     required ThemeData theme,
@@ -551,13 +708,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     String? trend,
   }) {
     return Card(
-      elevation: 0,
+      elevation: context.isMobile ? 1 : 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: theme.dividerColor),
       ),
       child: Container(
-        padding: const EdgeInsets.all(8), // ✅ FIX: 12 → 8
+        padding: EdgeInsets.all(context.isMobile ? 16 : 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(
@@ -568,22 +725,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(6), // ✅ FIX: 8 → 6
+                  padding: EdgeInsets.all(context.isMobile ? 8 : 6),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(icon, color: color, size: 16), // ✅ FIX: 18 → 16
+                  child: Icon(
+                    icon,
+                    color: color,
+                    size: context.isMobile ? 24 : 18,
+                  ),
                 ),
                 if (trend != null)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
+                      horizontal: 6,
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
@@ -599,31 +761,73 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             ? Colors.green
                             : Colors.red,
                         fontWeight: FontWeight.bold,
-                        fontSize: 9, // ✅ FIX: 10 → 9
+                        fontSize: context.isMobile ? 10 : 9,
                       ),
                     ),
                   ),
               ],
             ),
-            const Spacer(),
-            Text(
-              value,
-              style: theme.textTheme.titleMedium?.copyWith(
-                // ✅ FIX: titleLarge → titleMedium
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                    fontSize: ResponsiveHelper.getAdaptiveFontSize(context, 22),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: context.isMobile ? 12 : 11,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
-            Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontSize: 11,
-              ), // ✅ FIX: Forcer 11px
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecentActivity(ThemeData theme) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: theme.dividerColor),
+      ),
+      child: Padding(
+        padding: context.adaptivePadding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Activité récente',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _selectedIndex = 2),
+                  child: const Text('Voir tout'),
+                ),
+              ],
             ),
+            const SizedBox(height: 16),
+            ..._users
+                .take(5)
+                .map((user) => _buildActivityItem(theme: theme, user: user)),
           ],
         ),
       ),
@@ -657,110 +861,158 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
+  /// 🎨 MODÉRATION - UI/UX OPTIMISÉE
   Widget _buildModeration(ThemeData theme) {
-    return ListView(
-      padding: const EdgeInsets.all(32),
+    return Column(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
+        _buildModerationHeader(theme),
+        Expanded(
+          child: _pendingPhotos.isEmpty
+              ? _buildEmptyModeration(theme)
+              : _buildModerationGrid(theme),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModerationHeader(ThemeData theme) {
+    return Container(
+      padding: context.adaptivePadding,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(bottom: BorderSide(color: theme.dividerColor)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Modération des photos',
                   style: theme.textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
+                    fontSize: ResponsiveHelper.getAdaptiveFontSize(context, 28),
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${_pendingPhotos.length} photos en attente',
+                  '${_pendingPhotos.length} photo${_pendingPhotos.length > 1 ? 's' : ''} en attente',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
             ),
-            FilledButton.icon(
-              onPressed: _loadData,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Actualiser'),
-            ),
-          ],
-        ),
-
-        const SizedBox(height: 32),
-
-        if (_pendingPhotos.isEmpty)
-          Center(
-            child: Column(
-              children: [
-                const SizedBox(height: 100),
-                Icon(
-                  Icons.check_circle_outline,
-                  size: 80,
-                  color: Colors.green[300],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Aucune photo en attente',
-                  style: theme.textTheme.titleLarge,
-                ),
-              ],
-            ),
-          )
-        else
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 0.8,
-            ),
-            itemCount: _pendingPhotos.length,
-            itemBuilder: (context, index) {
-              final photo = _pendingPhotos[index];
-              return _buildPhotoCard(theme, photo);
-            },
           ),
-      ],
+          FilledButton.icon(
+            onPressed: _loadData,
+            icon: const Icon(Icons.refresh),
+            label: Text(context.isMobile ? 'Actualiser' : 'Actualiser'),
+          ),
+        ],
+      ),
     );
   }
 
-  // Remplace aussi _buildPhotoCard pour mieux gérer les erreurs (ligne ~520-580)
+  Widget _buildEmptyModeration(ThemeData theme) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.check_circle_outline,
+            size: context.isMobile ? 64 : 80,
+            color: Colors.green[300],
+          ),
+          SizedBox(height: context.adaptiveSpacing),
+          Text('Aucune photo en attente', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(
+            'Toutes les photos ont été modérées',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
+  /// 🎯 GRID RESPONSIVE POUR LA MODÉRATION
+  Widget _buildModerationGrid(ThemeData theme) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 🎨 Calcul dynamique des colonnes selon la largeur disponible
+        final columns = ResponsiveHelper.getColumnsFromItemWidth(
+          constraints.maxWidth - (context.adaptivePadding.horizontal),
+          targetItemWidth: 280, // Largeur cible d'une carte photo
+        ).clamp(1, 6);
+
+        return CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: context.adaptivePadding,
+              sliver: SliverGrid(
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: context.adaptiveSpacing,
+                  mainAxisSpacing: context.adaptiveSpacing,
+                  childAspectRatio: ResponsiveHelper.getCardAspectRatio(
+                    context,
+                  ),
+                ),
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final photo = _pendingPhotos[index];
+                  return _buildPhotoCard(theme, photo);
+                }, childCount: _pendingPhotos.length),
+              ),
+            ),
+
+            // Bouton charger plus
+            if (_hasMorePhotos)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.all(context.adaptiveSpacing * 2),
+                  child: Center(
+                    child: _isLoadingMore
+                        ? const CircularProgressIndicator()
+                        : OutlinedButton.icon(
+                            onPressed: _loadMorePhotos,
+                            icon: const Icon(Icons.expand_more),
+                            label: const Text('Charger plus de photos'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 16,
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// 🖼️ CARTE PHOTO OPTIMISÉE
   Widget _buildPhotoCard(ThemeData theme, Map<String, dynamic> photo) {
-    // ✅ FIX: Vérifier remote_path
     final remotePath = photo['remote_path'];
     if (remotePath == null || remotePath.isEmpty) {
-      return Card(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: Colors.orange),
-              const SizedBox(height: 8),
-              Text('URL manquante', style: theme.textTheme.bodySmall),
-            ],
-          ),
-        ),
-      );
+      return _buildErrorCard(theme, 'URL manquante');
     }
 
-    // ✅ FIX: Vérifier profiles
     final profiles = photo['profiles'];
     final userName = profiles != null
         ? (profiles['full_name'] ?? profiles['email'] ?? 'Utilisateur inconnu')
         : 'Utilisateur inconnu';
 
-    debugPrint('🖼️ Rendering photo: $remotePath for $userName'); // ✅ DEBUG
-
     return Card(
       clipBehavior: Clip.antiAlias,
-      elevation: 0,
+      elevation: context.isMobile ? 2 : 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: theme.dividerColor),
@@ -768,72 +1020,125 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // 🖼️ Image
           Expanded(
-            child: CachedNetworkImage(
-              imageUrl: remotePath,
-              fit: BoxFit.cover,
-              placeholder: (_, __) => Container(
-                color: theme.colorScheme.surfaceVariant,
-                child: const Center(child: CircularProgressIndicator()),
-              ),
-              errorWidget: (_, url, error) {
-                debugPrint('❌ Image load error: $url - $error'); // ✅ DEBUG
-                return Container(
-                  color: theme.colorScheme.errorContainer,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.broken_image, size: 48),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Erreur chargement',
-                        style: theme.textTheme.bodySmall,
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
+            flex: 3,
+            child: Hero(
+              tag: 'photo_${photo['id']}',
+              child: CachedNetworkImage(
+                imageUrl: remotePath,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => Container(
+                  color: theme.colorScheme.surfaceVariant,
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 12),
+                        Text('Chargement...', style: theme.textTheme.bodySmall),
+                      ],
+                    ),
                   ),
-                );
-              },
+                ),
+                errorWidget: (_, url, error) {
+                  debugPrint('❌ Image load error: $url - $error');
+                  return Container(
+                    color: theme.colorScheme.errorContainer,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.broken_image,
+                          size: context.isMobile ? 32 : 48,
+                          color: theme.colorScheme.error,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Erreur chargement',
+                          style: theme.textTheme.bodySmall,
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
           ),
+
+          // 📝 Infos
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(context.isMobile ? 12 : 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  userName,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 12,
+                      backgroundColor: theme.colorScheme.primaryContainer,
+                      child: Text(
+                        userName[0].toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: theme.colorScheme.onPrimaryContainer,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        userName,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  DateFormat(
-                    'dd/MM HH:mm',
-                  ).format(DateTime.parse(photo['uploaded_at'])),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.access_time,
+                      size: 12,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      DateFormat(
+                        'dd/MM HH:mm',
+                      ).format(DateTime.parse(photo['uploaded_at'])),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
+
+          // 🎯 Boutons d'action
           Padding(
-            padding: const EdgeInsets.all(8),
+            padding: EdgeInsets.all(context.isMobile ? 12 : 8),
             child: Row(
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: () => _rejectPhoto(photo),
                     icon: const Icon(Icons.close, size: 18),
-                    label: const Text('Refuser'),
+                    label: Text(context.isMobile ? 'Refuser' : 'Refuser'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.red,
                       side: const BorderSide(color: Colors.red),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      padding: EdgeInsets.symmetric(
+                        vertical: context.isMobile ? 12 : 8,
+                      ),
                     ),
                   ),
                 ),
@@ -842,10 +1147,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   child: FilledButton.icon(
                     onPressed: () => _approvePhoto(photo),
                     icon: const Icon(Icons.check, size: 18),
-                    label: const Text('Valider'),
+                    label: Text(context.isMobile ? 'Valider' : 'Valider'),
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.green,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      padding: EdgeInsets.symmetric(
+                        vertical: context.isMobile ? 12 : 8,
+                      ),
                     ),
                   ),
                 ),
@@ -853,6 +1160,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildErrorCard(ThemeData theme, String message) {
+    return Card(
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 48, color: Colors.orange),
+            const SizedBox(height: 8),
+            Text(message, style: theme.textTheme.bodySmall),
+          ],
+        ),
       ),
     );
   }
@@ -868,6 +1190,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             'moderator_id': moderatorId,
           })
           .eq('id', photo['id']);
+
       await _supabase.from('notifications').insert({
         'user_id': photo['user_id'],
         'type': 'photo_approved',
@@ -881,15 +1204,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           _pendingPhotos.removeWhere((p) => p['id'] == photo['id']);
           _stats['pending_photos'] = (_stats['pending_photos'] ?? 1) - 1;
         });
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Photo approuvée'),
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 12),
+                Text('Photo approuvée avec succès'),
+              ],
+            ),
             backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
     } catch (e) {
       debugPrint('❌ Approve error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -911,6 +1247,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     (r) => ListTile(
                       title: Text(r),
                       onTap: () => Navigator.pop(ctx, r),
+                      leading: const Icon(Icons.report_problem),
                     ),
                   )
                   .toList(),
@@ -931,6 +1268,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             'rejection_reason': reason,
           })
           .eq('id', photo['id']);
+
       await _supabase.from('notifications').insert({
         'user_id': photo['user_id'],
         'type': 'photo_rejected',
@@ -944,10 +1282,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           _pendingPhotos.removeWhere((p) => p['id'] == photo['id']);
           _stats['pending_photos'] = (_stats['pending_photos'] ?? 1) - 1;
         });
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Photo rejetée'),
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.block, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Photo rejetée: $reason')),
+              ],
+            ),
             backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -956,6 +1302,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
+  /// 👥 GESTION DES UTILISATEURS
   Widget _buildUsers(ThemeData theme) {
     final filteredUsers = _users.where((u) {
       if (_searchQuery.isEmpty) return true;
@@ -968,58 +1315,80 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(32),
-          child: Row(
+          padding: context.adaptivePadding,
+          child: Column(
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Gestion des utilisateurs',
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${_users.length} utilisateurs',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(
-                width: 300,
-                child: TextField(
-                  decoration: InputDecoration(
-                    hintText: 'Rechercher...',
-                    prefixIcon: const Icon(Icons.search),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Gestion des utilisateurs',
+                          style: theme.textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${_users.length} utilisateur${_users.length > 1 ? 's' : ''}',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  onChanged: (value) => setState(() => _searchQuery = value),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                decoration: InputDecoration(
+                  hintText: 'Rechercher...',
+                  prefixIcon: const Icon(Icons.search),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
+                onChanged: (value) => setState(() => _searchQuery = value),
               ),
             ],
           ),
         ),
         Expanded(
           child: Card(
-            margin: const EdgeInsets.fromLTRB(32, 0, 32, 32),
+            margin: EdgeInsets.fromLTRB(
+              context.adaptivePadding.left,
+              0,
+              context.adaptivePadding.right,
+              context.adaptivePadding.bottom,
+            ),
             elevation: 0,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
               side: BorderSide(color: theme.dividerColor),
             ),
             child: ListView.separated(
-              itemCount: filteredUsers.length,
+              itemCount: filteredUsers.length + (_hasMoreUsers ? 1 : 0),
               separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, index) =>
-                  _buildUserItem(theme, filteredUsers[index]),
+              itemBuilder: (context, index) {
+                if (index == filteredUsers.length) {
+                  return Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Center(
+                      child: _isLoadingMore
+                          ? const CircularProgressIndicator()
+                          : OutlinedButton.icon(
+                              onPressed: _loadMoreUsers,
+                              icon: const Icon(Icons.expand_more),
+                              label: const Text('Charger plus d\'utilisateurs'),
+                            ),
+                    ),
+                  );
+                }
+                return _buildUserItem(theme, filteredUsers[index]);
+              },
             ),
           ),
         ),
@@ -1160,17 +1529,4 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       ],
     ),
   );
-}
-
-// Panel modérateur simplifié (référence vers fichier séparé)
-class ModeratorPanelScreen extends StatelessWidget {
-  const ModeratorPanelScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Panel Modération')),
-      body: const Center(child: Text('Panel de modération des photos')),
-    );
-  }
 }

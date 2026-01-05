@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../providers/auth_provider.dart';
 import 'auth/auth_screen.dart';
+import 'moderator_panel.dart';
 import 'screens/admin_dashboard.dart';
 import 'screens/home_screen_complete.dart';
 import 'screens/profile_completion_screen.dart';
