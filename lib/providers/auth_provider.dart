@@ -1,5 +1,4 @@
-// lib/providers/auth_provider.dart - FIX pour la navigation après skip
-
+// lib/providers/auth_provider.dart - VERSION CORRIGÉE
 import 'dart:async';
 import 'dart:convert';
 
@@ -16,7 +15,7 @@ enum AuthStatus {
   authenticated,
   unauthenticated,
   emailVerificationPending,
-  profileIncomplete, // Profil incomplet mais peut skip
+  profileIncomplete,
   loading,
   error,
   accountDeleted,
@@ -37,7 +36,6 @@ class AuthProvider extends ChangeNotifier {
   static const Duration _refreshBuffer = Duration(hours: 1);
   static const Duration _heartbeatInterval = Duration(minutes: 5);
 
-  // Clés SharedPreferences pour le skip
   static const String _keyProfileSkipped = 'profile_completion_skipped';
   static const String _keySkippedAt = 'profile_skipped_at';
   static const String _keyLastReminder = 'last_completion_reminder';
@@ -55,120 +53,344 @@ class AuthProvider extends ChangeNotifier {
       _status == AuthStatus.profileIncomplete;
   bool get canAccessApp => isAuthenticated;
 
-  // Vérifier si l'user a skip la completion
-  Future<bool> hasSkippedCompletion() async {
-    if (_currentUser == null) return false;
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('${_keyProfileSkipped}_${_currentUser!.userId}') ??
-        false;
-  }
+  // ════════════════════════════════════════════════════════════════
+  // 🔧 PAS DE VÉRIFICATION PRÉALABLE
+  // ════════════════════════════════════════════════════════════════
+  // On tente directement le signup et on gère l'erreur "already exists"
 
-  // Obtenir la date du skip
-  Future<DateTime?> getSkippedDate() async {
-    if (_currentUser == null) return null;
-    final prefs = await SharedPreferences.getInstance();
-    final timestamp = prefs.getInt('${_keySkippedAt}_${_currentUser!.userId}');
-    return timestamp != null
-        ? DateTime.fromMillisecondsSinceEpoch(timestamp)
-        : null;
-  }
+  // ════════════════════════════════════════════════════════════════
+  // 🔧 SIGNUP AMÉLIORÉ
+  // ════════════════════════════════════════════════════════════════
 
-  // Vérifier si besoin d'un rappel
-  Future<bool> needsCompletionReminder() async {
-    if (_currentUser == null || _currentUser!.profileCompleted) return false;
+  Future<bool> signUp({
+    required String email,
+    required String password,
+    String? fullName,
+  }) async {
+    debugPrint('════════════════════════════════════════');
+    debugPrint('🔵 SIGNUP START: $email');
+    debugPrint('════════════════════════════════════════');
 
-    final hasSkipped = await hasSkippedCompletion();
-    if (!hasSkipped) return false;
+    _status = AuthStatus.loading;
+    _errorMessage = null;
+    notifyListeners();
 
-    final prefs = await SharedPreferences.getInstance();
-    final skippedAt = await getSkippedDate();
-    if (skippedAt == null) return false;
+    try {
+      // ✅ ÉTAPE 1 : Tenter la création dans Supabase Auth
+      debugPrint('🔵 Step 1: Creating account in Supabase Auth...');
 
-    final lastReminder = prefs.getInt(
-      '${_keyLastReminder}_${_currentUser!.userId}',
-    );
-    final timeSinceSkip = DateTime.now().difference(skippedAt);
-
-    if (lastReminder == null && timeSinceSkip.inHours >= 24) {
-      return true;
-    }
-
-    if (lastReminder != null) {
-      final lastReminderDate = DateTime.fromMillisecondsSinceEpoch(
-        lastReminder,
+      final response = await _supabase.auth.signUp(
+        email: email,
+        password: password,
+        data: {'full_name': fullName},
+        emailRedirectTo: 'io.supabase.profilum://email-verification',
       );
-      final timeSinceLastReminder = DateTime.now().difference(lastReminderDate);
-      return timeSinceLastReminder.inDays >= 7;
-    }
 
-    return false;
-  }
+      if (response.user == null) {
+        throw Exception('Aucun utilisateur retourné par Supabase');
+      }
 
-  // ✅ Méthode reloadCurrentUser (à ajouter)
-  Future<void> reloadCurrentUser() async {
-    if (_currentUser == null) {
-      debugPrint('❌ reloadCurrentUser: No current user');
-      return;
-    }
+      final user = response.user!;
+      debugPrint('✅ User created in Auth: ${user.id}');
+      debugPrint('   Email: ${user.email}');
+      debugPrint('   Confirmed: ${user.emailConfirmedAt != null}');
 
-    final userId = _currentUser!.userId;
-    debugPrint('🔵 Reloading user: $userId');
+      // ✅ ÉTAPE 2 : Créer le profil MANUELLEMENT dans la table profiles
+      debugPrint('🔵 Step 2: Creating profile in database...');
+      await _createUserProfile(
+        userId: user.id,
+        email: user.email!,
+        fullName: fullName,
+      );
 
-    try {
-      await _loadUserFromSupabase(userId);
+      // ✅ ÉTAPE 3 : Charger le profil créé
+      debugPrint('🔵 Step 3: Loading created profile...');
+      await _loadUserFromSupabase(user.id);
 
-      debugPrint('✅ User reloaded successfully');
-      debugPrint('   Profile completed: ${_currentUser?.profileCompleted}');
-      debugPrint('   Completion %: ${_currentUser?.completionPercentage}');
-      debugPrint('   New status: $_status');
+      // ✅ ÉTAPE 4 : Déterminer le statut final
+      _status = user.emailConfirmedAt == null
+          ? AuthStatus.emailVerificationPending
+          : AuthStatus.profileIncomplete;
+
+      debugPrint('✅ SIGNUP SUCCESS');
+      debugPrint('   Status: $_status');
+      debugPrint('   User ID: ${user.id}');
+      debugPrint('════════════════════════════════════════');
+
+      notifyListeners();
+      return true;
+    } on AuthException catch (e) {
+      debugPrint('❌ AUTH EXCEPTION during signup');
+      debugPrint('   Status Code: ${e.statusCode}');
+      debugPrint('   Message: ${e.message}');
+
+      // ✅ GESTION SPÉCIALE : Email déjà existant
+      if (e.statusCode == '422' && _isEmailAlreadyRegistered(e.message)) {
+        debugPrint('⚠️ Email already registered, converting to signIn');
+        _errorMessage = 'Cet email existe déjà. Connexion en cours...';
+        notifyListeners();
+
+        // Attendre un peu pour que l'utilisateur voie le message
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        // Convertir en signIn
+        return await signIn(email: email, password: password);
+      }
+
+      // Autres erreurs Auth
+      _errorMessage = _handleAuthError(e);
+      _status = AuthStatus.error;
+      notifyListeners();
+      return false;
     } catch (e, stack) {
-      debugPrint('❌ reloadCurrentUser error: $e');
-      debugPrint('Stack: $stack');
-      rethrow;
+      debugPrint('❌ UNEXPECTED ERROR during signup: $e');
+      debugPrint('Stack trace: $stack');
+
+      _errorMessage = 'Erreur inattendue: $e';
+      _status = AuthStatus.error;
+      notifyListeners();
+      return false;
     }
   }
 
-  // ✅ Version améliorée de _loadUserFromSupabase (remplace l'existante)
-  Future<void> _loadUserFromSupabase(String userId) async {
-    try {
-      debugPrint('🔵 Loading profile for userId: $userId');
+  // ════════════════════════════════════════════════════════════════
+  // 🆕 CRÉATION MANUELLE DU PROFIL (côté client)
+  // ════════════════════════════════════════════════════════════════
 
-      // 1️⃣ Charger le profil
+  Future<void> _createUserProfile({
+    required String userId,
+    required String email,
+    String? fullName,
+  }) async {
+    debugPrint('🔧 Creating user profile for: $userId');
+
+    final now = DateTime.now();
+
+    try {
+      await _supabase.from('profiles').insert({
+        'id': userId, // ✅ Utiliser l'ID de Auth
+        'email': email,
+        'full_name': fullName ?? '',
+        'profile_completed': false,
+        'completion_percentage': 0,
+        'role': 'user',
+        'interests': [], // ✅ Array vide
+        'social_links': [], // ✅ JSONB vide
+        'created_at': now.toIso8601String(),
+        'updated_at': now.toIso8601String(),
+      });
+
+      debugPrint('✅ Profile created successfully in database');
+    } on PostgrestException catch (e) {
+      debugPrint('❌ PostgrestException: ${e.code} - ${e.message}');
+
+      // ✅ Gestion du doublon (si le profil existe déjà)
+      if (e.code == '23505') {
+        debugPrint('⚠️ Profile already exists (duplicate key)');
+        // Ne pas considérer comme une erreur fatale
+        return;
+      }
+
+      // Autres erreurs PostgreSQL
+      throw Exception('Erreur création profil: ${e.message}');
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 🔍 HELPER : Détecter si l'email est déjà enregistré
+  // ════════════════════════════════════════════════════════════════
+
+  bool _isEmailAlreadyRegistered(String errorMessage) {
+    final msg = errorMessage.toLowerCase();
+    return msg.contains('already') &&
+        (msg.contains('registered') ||
+            msg.contains('exists') ||
+            msg.contains('been registered'));
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 🔧 SIGNIN AMÉLIORÉ
+  // ════════════════════════════════════════════════════════════════
+
+  Future<bool> signIn({required String email, required String password}) async {
+    debugPrint('════════════════════════════════════════');
+    debugPrint('🔵 SIGNIN START: $email');
+    debugPrint('════════════════════════════════════════');
+
+    _status = AuthStatus.loading;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      // ✅ Tenter la connexion
+      final response = await _supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+
+      if (response.user == null) {
+        throw Exception('Connexion échouée : aucun utilisateur retourné');
+      }
+
+      final user = response.user!;
+      debugPrint('✅ Signed in successfully');
+      debugPrint('   User ID: ${user.id}');
+      debugPrint('   Email confirmed: ${user.emailConfirmedAt != null}');
+
+      // ✅ Vérifier si l'email est confirmé
+      if (user.emailConfirmedAt == null) {
+        debugPrint('⚠️ Email not verified, redirecting to verification screen');
+        _status = AuthStatus.emailVerificationPending;
+        notifyListeners();
+        return true;
+      }
+
+      // ✅ Charger le profil
+      await _loadUserFromSupabase(user.id);
+      _startSessionManagement();
+
+      debugPrint('✅ SIGNIN SUCCESS');
+      debugPrint('   Status: $_status');
+      debugPrint('════════════════════════════════════════');
+
+      return true;
+    } on AuthException catch (e) {
+      debugPrint('❌ AUTH EXCEPTION during signin');
+      debugPrint('   Status Code: ${e.statusCode}');
+      debugPrint('   Message: ${e.message}');
+
+      _errorMessage = _handleAuthError(e);
+      _status = AuthStatus.error;
+      notifyListeners();
+      return false;
+    } catch (e, stack) {
+      debugPrint('❌ UNEXPECTED ERROR during signin: $e');
+      debugPrint('Stack trace: $stack');
+
+      _errorMessage = 'Erreur de connexion: $e';
+      _status = AuthStatus.error;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 🔧 GESTION DES ERREURS AUTH AMÉLIORÉE
+  // ════════════════════════════════════════════════════════════════
+
+  String _handleAuthError(AuthException e) {
+    debugPrint('🔍 Parsing Auth error: ${e.statusCode} - ${e.message}');
+
+    switch (e.statusCode) {
+      case '400':
+        if (e.message.contains('Invalid login credentials')) {
+          return 'Email ou mot de passe incorrect';
+        }
+        if (e.message.contains('Email not confirmed')) {
+          return 'Veuillez confirmer votre email avant de vous connecter';
+        }
+        return 'Requête invalide';
+
+      case '422':
+        if (e.message.contains('already registered') ||
+            e.message.contains('already been registered')) {
+          return 'Cet email est déjà utilisé';
+        }
+        if (e.message.contains('User already registered')) {
+          return 'Compte déjà existant';
+        }
+        return 'Données invalides';
+
+      case '429':
+        return 'Trop de tentatives. Réessayez dans quelques minutes';
+
+      case '500':
+        return 'Erreur serveur. Réessayez plus tard';
+
+      default:
+        debugPrint('⚠️ Unhandled Auth error code: ${e.statusCode}');
+        return e.message;
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 🔧 CHARGEMENT PROFIL DEPUIS SUPABASE - AMÉLIORÉ
+  // ════════════════════════════════════════════════════════════════
+
+  Future<void> _loadUserFromSupabase(String userId) async {
+    debugPrint('════════════════════════════════════════');
+    debugPrint('🔵 Loading profile from Supabase');
+    debugPrint('   User ID: $userId');
+    debugPrint('════════════════════════════════════════');
+
+    try {
+      // ✅ ÉTAPE 1 : Vérifier que l'user existe dans Auth
+      final authUser = _supabase.auth.currentUser;
+      if (authUser == null || authUser.id != userId) {
+        throw Exception('Utilisateur non authentifié dans Auth');
+      }
+
+      debugPrint('✅ User confirmed in Auth: ${authUser.email}');
+
+      // ✅ ÉTAPE 2 : Charger le profil depuis la table profiles
+      debugPrint('🔍 Fetching profile from database...');
+
       final data = await _supabase
           .from('profiles')
           .select()
           .eq('id', userId)
-          .single();
+          .maybeSingle(); // ✅ Retourne null si inexistant
 
       if (data == null) {
-        debugPrint('❌ No profile found for userId: $userId');
-        await _createMinimalUserProfile(userId, 'email@inconnu.com', null);
-        _errorMessage = 'Profil créé. Veuillez compléter vos informations.';
-        _status = AuthStatus.profileIncomplete;
-        notifyListeners();
-        return;
+        // ⚠️ Cela ne devrait JAMAIS arriver si le signup a bien fonctionné
+        debugPrint('❌ CRITICAL: Profile not found in database!');
+        debugPrint('🔧 Creating profile as fallback...');
+
+        await _createUserProfile(
+          userId: userId,
+          email: authUser.email ?? 'unknown@email.com',
+          fullName: authUser.userMetadata?['full_name'],
+        );
+
+        // Recharger après création
+        final newData = await _supabase
+            .from('profiles')
+            .select()
+            .eq('id', userId)
+            .single();
+
+        _currentUser = _mapToUserEntity(newData);
+        debugPrint('✅ Profile created and loaded (fallback)');
+      } else {
+        _currentUser = _mapToUserEntity(data);
+        debugPrint('✅ Profile loaded from database');
       }
 
-      debugPrint('✅ Profile data loaded from Supabase');
-      _currentUser = _mapToUserEntity(data);
-
-      // 2️⃣ ✅ NOUVEAU: Charger les photos depuis la table `photos`
+      // ✅ ÉTAPE 3 : Charger les photos
+      debugPrint('🔍 Loading user photos...');
       await _loadUserPhotos(userId);
 
+      // ✅ ÉTAPE 4 : Sauvegarder en local (ObjectBox)
       debugPrint('💾 Saving to ObjectBox...');
       await _objectBox.saveUser(_currentUser!);
-      debugPrint('✅ Saved to ObjectBox successfully');
 
+      // ✅ ÉTAPE 5 : Marquer la session active
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('has_active_session', true);
 
-      debugPrint('🔵 Determining auth status...');
+      // ✅ ÉTAPE 6 : Déterminer le statut
       await _determineAuthStatus();
 
-      debugPrint('✅ Final status: $_status');
+      debugPrint('✅ Profile loading complete');
+      debugPrint('   Name: ${_currentUser!.fullName}');
+      debugPrint('   Email: ${_currentUser!.email}');
+      debugPrint('   Completed: ${_currentUser!.profileCompleted}');
+      debugPrint('   Status: $_status');
+      debugPrint('════════════════════════════════════════');
     } catch (e, stack) {
-      debugPrint('❌ Load user error: $e');
-      debugPrint('Stack: $stack');
+      debugPrint('❌ Error loading profile: $e');
+      debugPrint('Stack trace: $stack');
+
       _errorMessage = 'Erreur de chargement du profil: $e';
       _status = AuthStatus.error;
       notifyListeners();
@@ -176,25 +398,27 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // 🆕 NOUVELLE MÉTHODE: Charger les photos depuis la table photos
+  // ════════════════════════════════════════════════════════════════
+  // 📸 CHARGEMENT PHOTOS
+  // ════════════════════════════════════════════════════════════════
+
   Future<void> _loadUserPhotos(String userId) async {
     try {
       final photos = await _supabase
           .from('photos')
           .select()
           .eq('user_id', userId)
-          .eq('status', 'approved') // ✅ Seulement les photos approuvées
+          .eq('status', 'approved')
           .order('display_order', ascending: true);
 
       debugPrint('📸 Loaded ${photos.length} photos');
 
-      // Sauvegarder chaque photo dans ObjectBox
       for (final photoData in photos) {
         final photoEntity = PhotoEntity(
           photoId: photoData['id'],
           userId: userId,
           type: photoData['type'],
-          localPath: '', // Pas de path local pour les photos distantes
+          localPath: '',
           remotePath: photoData['remote_path'],
           status: photoData['status'],
           hasWatermark: photoData['has_watermark'] ?? false,
@@ -209,63 +433,170 @@ class AuthProvider extends ChangeNotifier {
 
         await _objectBox.savePhoto(photoEntity);
       }
-
-      debugPrint('✅ Photos saved to ObjectBox');
     } catch (e) {
       debugPrint('⚠️ Error loading photos: $e');
-      // Ne pas bloquer le chargement du profil si les photos échouent
+      // Ne pas bloquer le workflow si les photos échouent
     }
   }
 
-  // ✅ Version améliorée de _determineAuthStatus (remplace l'existante)
-  Future<void> _determineAuthStatus() async {
-    debugPrint('════════════════════════════════════════');
-    debugPrint('🔍 DETERMINING AUTH STATUS');
-    debugPrint('════════════════════════════════════════');
+  // ════════════════════════════════════════════════════════════════
+  // 🎯 DÉTERMINATION DU STATUT
+  // ════════════════════════════════════════════════════════════════
 
+  Future<void> _determineAuthStatus() async {
     if (_currentUser == null) {
       _status = AuthStatus.unauthenticated;
-      debugPrint('❌ No user → unauthenticated');
-    } else {
-      debugPrint('✅ User found:');
-      debugPrint('   - Email: ${_currentUser!.email}');
-      debugPrint('   - Name: ${_currentUser!.fullName}');
-      debugPrint('   - Profile completed: ${_currentUser!.profileCompleted}');
-      debugPrint('   - Completion %: ${_currentUser!.completionPercentage}%');
-
-      if (_currentUser!.profileCompleted) {
-        _status = AuthStatus.authenticated;
-        debugPrint('✅ Profile complete → authenticated');
-      } else {
-        // Profil incomplet : vérifier si skip
-        final hasSkipped = await hasSkippedCompletion();
-        debugPrint('   - Has skipped: $hasSkipped');
-
-        if (hasSkipped) {
-          final skippedDate = await getSkippedDate();
-          debugPrint('   - Skipped at: $skippedDate');
-
-          _status = AuthStatus.authenticated; // Skip = accès autorisé
-          debugPrint('✅ Profile incomplete but skipped → authenticated');
-        } else {
-          _status =
-              AuthStatus.profileIncomplete; // Pas skip = proposer completion
-          debugPrint(
-            '⚠️ Profile incomplete and not skipped → profileIncomplete',
-          );
-        }
-      }
+      return;
     }
 
-    debugPrint('════════════════════════════════════════');
-    debugPrint('📊 FINAL STATUS: $_status');
-    debugPrint('════════════════════════════════════════');
+    // Vérifier si le profil est complet
+    if (_currentUser!.profileCompleted) {
+      _status = AuthStatus.authenticated;
+      return;
+    }
+
+    // Profil incomplet : vérifier si skip
+    final hasSkipped = await hasSkippedCompletion();
+
+    if (hasSkipped) {
+      _status = AuthStatus.authenticated; // Skip = accès autorisé
+    } else {
+      _status = AuthStatus.profileIncomplete; // Pas skip = proposer completion
+    }
 
     notifyListeners();
   }
 
-  // La méthode _loadUserFromSupabase existe déjà, mais voici sa version
-  // avec des logs supplémentaires si tu veux la remplacer :
+  // ════════════════════════════════════════════════════════════════
+  // 🔄 RELOAD USER
+  // ════════════════════════════════════════════════════════════════
+
+  Future<void> reloadCurrentUser() async {
+    if (_currentUser == null) {
+      debugPrint('❌ reloadCurrentUser: No current user');
+      return;
+    }
+
+    final userId = _currentUser!.userId;
+    debugPrint('🔄 Reloading user: $userId');
+
+    try {
+      await _loadUserFromSupabase(userId);
+      debugPrint('✅ User reloaded successfully');
+    } catch (e, stack) {
+      debugPrint('❌ reloadCurrentUser error: $e');
+      debugPrint('Stack: $stack');
+      rethrow;
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 🔧 HELPERS - Skip, Session, etc. (inchangés)
+  // ════════════════════════════════════════════════════════════════
+
+  Future<bool> hasSkippedCompletion() async {
+    if (_currentUser == null) return false;
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('${_keyProfileSkipped}_${_currentUser!.userId}') ??
+        false;
+  }
+
+  Future<bool> skipProfileCompletion() async {
+    if (_currentUser == null) return false;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now();
+
+      await prefs.setBool(
+        '${_keyProfileSkipped}_${_currentUser!.userId}',
+        true,
+      );
+      await prefs.setInt(
+        '${_keySkippedAt}_${_currentUser!.userId}',
+        now.millisecondsSinceEpoch,
+      );
+
+      _status = AuthStatus.authenticated;
+      notifyListeners();
+
+      return true;
+    } catch (e) {
+      debugPrint('❌ Skip error: $e');
+      return false;
+    }
+  }
+
+  Future<void> signOut() async {
+    await _supabase.auth.signOut();
+    await _clearLocalSession();
+    _stopSessionManagement();
+    _status = AuthStatus.unauthenticated;
+    _currentUser = null;
+    notifyListeners();
+  }
+
+  Future<bool> resetPassword(String email) async {
+    try {
+      await _supabase.auth.resetPasswordForEmail(email);
+      return true;
+    } catch (e) {
+      _errorMessage = 'Erreur: $e';
+      return false;
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 🔧 SESSION MANAGEMENT (inchangé)
+  // ════════════════════════════════════════════════════════════════
+
+  void _startSessionManagement() {
+    _stopSessionManagement();
+    _sessionTimer = Timer.periodic(_refreshBuffer, (_) async {
+      await _validateAndRefreshSession();
+    });
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) async {
+      await _updateLastActive();
+    });
+  }
+
+  void _stopSessionManagement() {
+    _sessionTimer?.cancel();
+    _heartbeatTimer?.cancel();
+    _sessionTimer = null;
+    _heartbeatTimer = null;
+  }
+
+  Future<void> _validateAndRefreshSession() async {
+    try {
+      final session = _supabase.auth.currentSession;
+      if (session == null) {
+        await signOut();
+        return;
+      }
+
+      final expiresAt = DateTime.fromMillisecondsSinceEpoch(
+        (session.expiresAt ?? 0) * 1000,
+      );
+      if (DateTime.now().isAfter(expiresAt.subtract(_refreshBuffer))) {
+        await _supabase.auth.refreshSession();
+      }
+    } catch (e) {
+      debugPrint('Session refresh error: $e');
+    }
+  }
+
+  Future<void> _updateLastActive() async {
+    if (_currentUser == null) return;
+    try {
+      await _supabase
+          .from('profiles')
+          .update({'last_active_at': DateTime.now().toIso8601String()})
+          .eq('id', _currentUser!.userId);
+    } catch (e) {
+      debugPrint('Last active update error: $e');
+    }
+  }
 
   Future<void> _initAuth() async {
     _status = AuthStatus.loading;
@@ -303,8 +634,6 @@ class AuthProvider extends ChangeNotifier {
       final event = data.event;
       final session = data.session;
 
-      debugPrint('🔔 Auth event: $event');
-
       if (event == AuthChangeEvent.signedIn && session != null) {
         _handleSignIn(session);
       } else if (event == AuthChangeEvent.signedOut) {
@@ -312,10 +641,8 @@ class AuthProvider extends ChangeNotifier {
       } else if (event == AuthChangeEvent.tokenRefreshed && session != null) {
         _handleTokenRefresh(session);
       } else if (event == AuthChangeEvent.userUpdated && session != null) {
-        // ✅ NOUVEAU : Détection de la vérification d'email
         if (session.user.emailConfirmedAt != null &&
             _status == AuthStatus.emailVerificationPending) {
-          debugPrint('✅ Email verified via deep link!');
           _handleSignIn(session);
         }
       }
@@ -344,278 +671,6 @@ class AuthProvider extends ChangeNotifier {
     await prefs.setInt('token_expires_at', expiresAt);
   }
 
-  // ===== SIGNUP =====
-  Future<bool> signUp({
-    required String email,
-    required String password,
-    String? fullName,
-  }) async {
-    debugPrint('🔵 SIGNUP START: $email');
-    _status = AuthStatus.loading;
-    _errorMessage = null;
-    notifyListeners();
-
-    try {
-      debugPrint('🔵 Calling Supabase signUp...');
-      final response = await _supabase.auth.signUp(
-        email: email,
-        password: password,
-        data: {'full_name': fullName},
-      );
-
-      debugPrint('🔵 Supabase response: ${response.user?.id}');
-
-      if (response.user != null) {
-        debugPrint('✅ User created: ${response.user!.id}');
-
-        await Future.delayed(const Duration(seconds: 2));
-
-        debugPrint('🔵 Loading user profile...');
-        await _loadUserFromSupabase(response.user!.id);
-
-        _status = response.user!.emailConfirmedAt == null
-            ? AuthStatus.emailVerificationPending
-            : AuthStatus.profileIncomplete;
-
-        debugPrint('✅ SIGNUP SUCCESS - Status: $_status');
-        notifyListeners();
-        return true;
-      }
-
-      debugPrint('❌ SIGNUP ERROR: No user returned');
-      throw Exception('Échec signup');
-    } on AuthException catch (e) {
-      debugPrint('❌ AUTH EXCEPTION: ${e.message} (${e.statusCode})');
-      if (e.message.contains('already')) {
-        debugPrint('🔵 Email exists, converting to login...');
-        return await signIn(email: email, password: password);
-      }
-      _errorMessage = _handleAuthError(e);
-      _status = AuthStatus.error;
-      notifyListeners();
-      return false;
-    } catch (e, stack) {
-      debugPrint('❌ SIGNUP ERROR: $e');
-      debugPrint('Stack: $stack');
-      _errorMessage = 'Erreur: $e';
-      _status = AuthStatus.error;
-      notifyListeners();
-      return false;
-    }
-  }
-
-  Future<void> _createMinimalUserProfile(
-    String userId,
-    String email,
-    String? fullName,
-  ) async {
-    final now = DateTime.now();
-    await _supabase.from('profiles').upsert({
-      'id': userId,
-      'email': email,
-      'full_name': fullName ?? '',
-      'profile_completed': false,
-      'completion_percentage': 0,
-      'role': 'user',
-      'created_at': now.toIso8601String(),
-      'updated_at': now.toIso8601String(),
-    });
-  }
-
-  // ===== LOGIN =====
-  Future<bool> signIn({required String email, required String password}) async {
-    _status = AuthStatus.loading;
-    _errorMessage = null;
-    notifyListeners();
-
-    try {
-      final response = await _supabase.auth.signInWithPassword(
-        email: email,
-        password: password,
-      );
-
-      if (response.user != null) {
-        await _loadUserFromSupabase(response.user!.id);
-        _startSessionManagement();
-        return true;
-      }
-
-      throw Exception('Échec de connexion');
-    } on AuthException catch (e) {
-      _errorMessage = _handleAuthError(e);
-      _status = AuthStatus.error;
-      notifyListeners();
-      return false;
-    } catch (e) {
-      _errorMessage = 'Erreur: $e';
-      _status = AuthStatus.error;
-      notifyListeners();
-      return false;
-    }
-  }
-
-  // ===== RESET PASSWORD =====
-  Future<bool> resetPassword(String email) async {
-    try {
-      await _supabase.auth.resetPasswordForEmail(email);
-      return true;
-    } catch (e) {
-      _errorMessage = 'Erreur: $e';
-      return false;
-    }
-  }
-
-  // ✨ FIX: Méthode pour skipper la completion
-  Future<bool> skipProfileCompletion() async {
-    if (_currentUser == null) {
-      debugPrint('❌ Skip failed: No current user');
-      return false;
-    }
-
-    try {
-      debugPrint('🔵 Starting skip process for user: ${_currentUser!.userId}');
-
-      final prefs = await SharedPreferences.getInstance();
-      final now = DateTime.now();
-
-      // Sauvegarder le skip en local
-      await prefs.setBool(
-        '${_keyProfileSkipped}_${_currentUser!.userId}',
-        true,
-      );
-      await prefs.setInt(
-        '${_keySkippedAt}_${_currentUser!.userId}',
-        now.millisecondsSinceEpoch,
-      );
-
-      debugPrint('✅ Skip saved to SharedPreferences');
-
-      // ✨ FIX: Changer le statut IMMÉDIATEMENT pour débloquer le router
-      _status = AuthStatus.authenticated;
-
-      debugPrint('✅ Status changed to: $_status');
-
-      // ✨ FIX: Notifier AVANT le return pour que le router se rebuild
-      notifyListeners();
-
-      debugPrint('✅ Listeners notified - router should rebuild now');
-
-      return true;
-    } catch (e, stack) {
-      debugPrint('❌ Skip error: $e');
-      debugPrint('Stack: $stack');
-      _errorMessage = 'Erreur lors du skip: $e';
-      return false;
-    }
-  }
-
-  // Marquer qu'un rappel a été envoyé
-  Future<void> markReminderSent() async {
-    if (_currentUser == null) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(
-      '${_keyLastReminder}_${_currentUser!.userId}',
-      DateTime.now().millisecondsSinceEpoch,
-    );
-    notifyListeners();
-  }
-
-  // ===== LOGOUT =====
-  Future<void> signOut() async {
-    await _supabase.auth.signOut();
-    await _clearLocalSession();
-    _stopSessionManagement();
-    _status = AuthStatus.unauthenticated;
-    _currentUser = null;
-    notifyListeners();
-  }
-
-  // ===== DELETE ACCOUNT =====
-  Future<bool> deleteAccount() async {
-    if (_currentUser == null) return false;
-
-    try {
-      final userId = _currentUser!.userId;
-
-      await _supabase.from('profiles').delete().eq('id', userId);
-      await _objectBox.deleteUser(userId);
-      await _clearLocalSession();
-
-      _status = AuthStatus.accountDeleted;
-      _currentUser = null;
-      notifyListeners();
-      return true;
-    } catch (e) {
-      _errorMessage = 'Erreur suppression: $e';
-      return false;
-    }
-  }
-
-  // ===== SESSION MANAGEMENT =====
-  void _startSessionManagement() {
-    _stopSessionManagement();
-
-    _sessionTimer = Timer.periodic(_refreshBuffer, (_) async {
-      await _validateAndRefreshSession();
-    });
-
-    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) async {
-      await _updateLastActive();
-    });
-  }
-
-  void _stopSessionManagement() {
-    _sessionTimer?.cancel();
-    _heartbeatTimer?.cancel();
-    _sessionTimer = null;
-    _heartbeatTimer = null;
-  }
-
-  Future<void> _validateAndRefreshSession() async {
-    try {
-      final session = _supabase.auth.currentSession;
-      if (session == null) {
-        await signOut();
-        return;
-      }
-
-      final expiresAt = DateTime.fromMillisecondsSinceEpoch(
-        (session.expiresAt ?? 0) * 1000,
-      );
-
-      if (DateTime.now().isAfter(expiresAt.subtract(_refreshBuffer))) {
-        await _supabase.auth.refreshSession();
-      }
-    } catch (e) {
-      debugPrint('Session refresh error: $e');
-    }
-  }
-
-  Future<void> _updateLastActive() async {
-    if (_currentUser == null) return;
-
-    try {
-      await _supabase
-          .from('profiles')
-          .update({'last_active_at': DateTime.now().toIso8601String()})
-          .eq('id', _currentUser!.userId);
-    } on PostgrestException catch (e) {
-      // ✅ Ignorer l'erreur de fonction manquante (trigger auto)
-      if (e.code == '42883' &&
-          e.message.contains('calculate_profile_completion')) {
-        debugPrint('⚠️ Trigger SQL error ignored in _updateLastActive');
-        // Ne pas logger comme erreur
-      } else {
-        debugPrint('Last active update error: $e');
-      }
-    } catch (e) {
-      debugPrint('Last active update error: $e');
-    }
-  }
-
-  // ===== HELPERS =====
-
   Future<void> _loadUserFromLocal(String userId) async {
     _currentUser = await _objectBox.getUser(userId);
     await _determineAuthStatus();
@@ -623,41 +678,7 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _clearLocalSession() async {
     final prefs = await SharedPreferences.getInstance();
-
-    // Garder les infos de skip si présentes
-    final userId = _currentUser?.userId;
-    Map<String, dynamic> skipData = {};
-
-    if (userId != null) {
-      final skipped = prefs.getBool('${_keyProfileSkipped}_$userId');
-      final skippedAt = prefs.getInt('${_keySkippedAt}_$userId');
-      final lastReminder = prefs.getInt('${_keyLastReminder}_$userId');
-
-      if (skipped != null) skipData['skipped'] = skipped;
-      if (skippedAt != null) skipData['skippedAt'] = skippedAt;
-      if (lastReminder != null) skipData['lastReminder'] = lastReminder;
-    }
-
     await prefs.clear();
-
-    // Restaurer les infos de skip
-    if (userId != null && skipData.isNotEmpty) {
-      if (skipData['skipped'] != null) {
-        await prefs.setBool(
-          '${_keyProfileSkipped}_$userId',
-          skipData['skipped'],
-        );
-      }
-      if (skipData['skippedAt'] != null) {
-        await prefs.setInt('${_keySkippedAt}_$userId', skipData['skippedAt']);
-      }
-      if (skipData['lastReminder'] != null) {
-        await prefs.setInt(
-          '${_keyLastReminder}_$userId',
-          skipData['lastReminder'],
-        );
-      }
-    }
   }
 
   UserEntity _mapToUserEntity(Map<String, dynamic> data) {
@@ -685,8 +706,6 @@ class AuthProvider extends ChangeNotifier {
       gender: data['gender'],
       lookingFor: data['looking_for'],
       bio: data['bio'],
-
-      // ✅ SUPPRIMÉ: photosJson, photoUrl, coverUrl
       profileCompleted: data['profile_completed'] ?? false,
       completionPercentage: data['completion_percentage'] ?? 0,
       occupation: data['occupation'],
@@ -694,12 +713,9 @@ class AuthProvider extends ChangeNotifier {
       heightCm: data['height_cm'],
       education: data['education'],
       relationshipStatus: data['relationship_status'],
-
-      // ✅ NOUVEAU: Social links depuis JSONB
       socialLinksJson: data['social_links'] != null
           ? jsonEncode(data['social_links'])
           : '[]',
-
       city: data['city'],
       country: data['country'],
       latitude: data['latitude']?.toDouble(),
@@ -714,30 +730,13 @@ class AuthProvider extends ChangeNotifier {
     );
   }
 
-  String _handleAuthError(AuthException e) {
-    switch (e.statusCode) {
-      case '400':
-        return 'Email ou mot de passe invalide';
-      case '422':
-        return 'Email déjà utilisé';
-      case '429':
-        return 'Trop de tentatives. Réessayez plus tard';
-      default:
-        return e.message;
-    }
-  }
-
-  // ===== EMAIL VERIFICATION =====
-
-  /// Renvoyer l'email de vérification
+  // Email verification
   Future<bool> resendVerificationEmail() async {
     try {
       final user = _supabase.auth.currentUser;
       if (user == null) return false;
 
       await _supabase.auth.resend(type: OtpType.signup, email: user.email!);
-
-      debugPrint('✅ Verification email resent to: ${user.email}');
       return true;
     } catch (e) {
       debugPrint('❌ Resend verification error: $e');
@@ -746,7 +745,6 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  /// Vérifier manuellement si l'email est vérifié
   Future<bool> checkEmailVerification() async {
     try {
       final session = await _supabase.auth.refreshSession();
@@ -755,7 +753,6 @@ class AuthProvider extends ChangeNotifier {
       if (user == null) return false;
 
       if (user.emailConfirmedAt != null) {
-        debugPrint('✅ Email verified! Loading profile...');
         await _loadUserFromSupabase(user.id);
         return true;
       }
