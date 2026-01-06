@@ -51,6 +51,8 @@ dependencies:
   rename: ^3.1.0
   # Authentication
   google_sign_in: ^7.2.0
+  faker: ^2.2.0
+  http: ^1.2.0
 
   # Database
   objectbox: ^5.1.0
