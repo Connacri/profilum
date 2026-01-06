@@ -659,7 +659,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: context.adaptiveSpacing,
           crossAxisSpacing: context.adaptiveSpacing,
-          childAspectRatio: context.isMobile ? 1.2 : 2.5,
+          childAspectRatio: context.isMobile ? 1.2 : 2,
           children: [
             _buildStatCard(
               theme: theme,
@@ -714,7 +714,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         side: BorderSide(color: theme.dividerColor),
       ),
       child: Container(
-        padding: EdgeInsets.all(context.isMobile ? 16 : 12),
+        padding: EdgeInsets.all(context.isMobile ? 16 : 10),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(

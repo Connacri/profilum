@@ -1,6 +1,7 @@
 // lib/main.dart - FIX : Ne pas appeler setUserGender pendant le build
 
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart'; // ✅ AJOUTER
 import 'package:profilum/services/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -13,6 +14,9 @@ import 'services/image_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ✅ AJOUTER - Initialiser les locales français
+  await initializeDateFormatting('fr_FR', null);
 
   await Supabase.initialize(
     url: 'https://uuosdbxqegnnwaojqxec.supabase.co',

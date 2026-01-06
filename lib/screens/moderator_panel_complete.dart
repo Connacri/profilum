@@ -1,12 +1,10 @@
-// lib/moderator_panel_complete.dart - UI COMPLÈTE
+// lib/screens/moderator_panel_modern.dart - DESIGN MODERNE TYPE APP MOBILE
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/auth_provider.dart';
-import '../responsive_helper.dart';
 
 class ModeratorPanelScreen extends StatefulWidget {
   const ModeratorPanelScreen({super.key});
@@ -18,32 +16,23 @@ class ModeratorPanelScreen extends StatefulWidget {
 class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
     with SingleTickerProviderStateMixin {
   final _supabase = Supabase.instance.client;
-  late AnimationController _animController;
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  late TabController _tabController;
 
-  int _selectedIndex = 0;
   bool _isLoading = true;
   Map<String, dynamic> _stats = {};
   List<Map<String, dynamic>> _pendingPhotos = [];
-  int _photosPage = 0;
-  final int _pageSize = 50;
-  bool _hasMorePhotos = true;
-  bool _isLoadingMore = false;
+  int _currentPhotoIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _animController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
-    );
-    _animController.forward();
+    _tabController = TabController(length: 3, vsync: this);
     _loadData();
   }
 
   @override
   void dispose() {
-    _animController.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -52,7 +41,6 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
     setState(() => _isLoading = true);
 
     try {
-      // Stats
       final pendingCount = await _supabase
           .from('photos')
           .select('id')
@@ -60,13 +48,16 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
           .count();
 
       final moderatorId = _supabase.auth.currentUser!.id;
+      final today = DateTime.now()
+          .subtract(const Duration(days: 1))
+          .toIso8601String();
 
       final approvedToday = await _supabase
           .from('photos')
           .select('id')
           .eq('moderator_id', moderatorId)
           .eq('status', 'approved')
-          .gte('moderated_at', DateTime.now().subtract(const Duration(days: 1)).toIso8601String())
+          .gte('moderated_at', today)
           .count();
 
       final rejectedToday = await _supabase
@@ -74,73 +65,34 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
           .select('id')
           .eq('moderator_id', moderatorId)
           .eq('status', 'rejected')
-          .gte('moderated_at', DateTime.now().subtract(const Duration(days: 1)).toIso8601String())
+          .gte('moderated_at', today)
           .count();
 
-      // Photos en attente
       final photos = await _supabase
           .from('photos')
           .select(
-            'id, user_id, remote_path, uploaded_at, status, type, has_watermark, profiles!photos_user_id_fkey(full_name, email)',
+            'id, user_id, remote_path, uploaded_at, type, has_watermark, profiles!photos_user_id_fkey(full_name, email, gender, city)',
           )
           .eq('status', 'pending')
           .not('remote_path', 'is', null)
           .order('uploaded_at', ascending: true)
-          .range(_photosPage * _pageSize, (_photosPage + 1) * _pageSize - 1);
-
-      _hasMorePhotos = photos.length == _pageSize;
+          .limit(50);
 
       if (!mounted) return;
 
       setState(() {
         _stats = {
-          'pending_photos': pendingCount.count,
-          'approved_today': approvedToday.count,
-          'rejected_today': rejectedToday.count,
-          'total_today': approvedToday.count + rejectedToday.count,
+          'pending': pendingCount.count,
+          'approved': approvedToday.count,
+          'rejected': rejectedToday.count,
+          'total': approvedToday.count + rejectedToday.count,
         };
         _pendingPhotos = List<Map<String, dynamic>>.from(photos);
         _isLoading = false;
       });
-    } catch (e, stack) {
-      debugPrint('❌ Load error: $e');
-      debugPrint('Stack: $stack');
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  Future<void> _loadMorePhotos() async {
-    if (!_hasMorePhotos || _isLoadingMore) return;
-
-    setState(() => _isLoadingMore = true);
-    _photosPage++;
-
-    try {
-      final photos = await _supabase
-          .from('photos')
-          .select(
-            'id, user_id, remote_path, uploaded_at, status, type, has_watermark, profiles!photos_user_id_fkey(full_name, email)',
-          )
-          .eq('status', 'pending')
-          .not('remote_path', 'is', null)
-          .order('uploaded_at', ascending: true)
-          .range(_photosPage * _pageSize, (_photosPage + 1) * _pageSize - 1);
-
-      _hasMorePhotos = photos.length == _pageSize;
-
-      if (mounted) {
-        setState(() {
-          _pendingPhotos.addAll(List<Map<String, dynamic>>.from(photos));
-          _isLoadingMore = false;
-        });
-      }
     } catch (e) {
-      debugPrint('❌ Load more error: $e');
-      if (mounted) {
-        setState(() => _isLoadingMore = false);
-      }
+      debugPrint('❌ Load error: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -148,965 +100,706 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isMobile = constraints.maxWidth < ResponsiveHelper.mobileBreakpoint;
-
-        return Scaffold(
-          key: _scaffoldKey,
-          drawer: isMobile ? _buildDrawer(theme) : null,
-          body: Row(
-            children: [
-              if (!isMobile) _buildSidebar(theme),
-              Expanded(
-                child: Column(
-                  children: [
-                    if (isMobile) _buildMobileAppBar(theme),
-                    Expanded(
-                      child: _isLoading
-                          ? const Center(child: CircularProgressIndicator())
-                          : _buildContent(theme),
-                    ),
-                  ],
+    return Scaffold(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                _buildModernAppBar(theme),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildDashboard(theme),
+                      _buildSwipeModeration(theme),
+                      _buildProfile(theme),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-        );
-      },
+              ],
+            ),
+      bottomNavigationBar: _buildBottomNav(theme),
     );
   }
 
-  /// 📱 AppBar pour mobile
-  Widget _buildMobileAppBar(ThemeData theme) {
+  /// 🎨 MODERN APP BAR
+  Widget _buildModernAppBar(ThemeData theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
-        ),
+        color: theme.colorScheme.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
       ),
       child: SafeArea(
+        bottom: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              IconButton(
-                icon: const Icon(Icons.menu, color: Colors.white),
-                onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      theme.colorScheme.primary,
+                      theme.colorScheme.secondary,
+                    ],
+                  ),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.verified_user,
+                  color: Colors.white,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 12),
-              const Icon(Icons.verified_user, color: Colors.white, size: 24),
-              const SizedBox(width: 8),
-              const Text(
-                'MODÉRATEUR',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              const Spacer(),
-              if (_stats['pending_photos'] != null && _stats['pending_photos'] > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.red,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '${_stats['pending_photos']}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 📱 Drawer pour mobile
-  Widget _buildDrawer(ThemeData theme) {
-    return Drawer(
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              _buildDrawerHeader(theme),
-              const Divider(color: Colors.white24),
-              Expanded(child: _buildMenuItems(theme)),
-              const Divider(color: Colors.white24),
-              _buildLogoutButton(theme),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 🖥️ Sidebar fixe pour desktop
-  Widget _buildSidebar(ThemeData theme) {
-    return Container(
-      width: ResponsiveHelper.getSidebarWidth(context),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.15),
-            blurRadius: 12,
-            offset: const Offset(2, 0),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          _buildDrawerHeader(theme),
-          const Divider(color: Colors.white24),
-          Expanded(child: _buildMenuItems(theme)),
-          const Divider(color: Colors.white24),
-          _buildLogoutButton(theme),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDrawerHeader(ThemeData theme) {
-    final authProvider = context.watch<AuthProvider>();
-    final user = authProvider.currentUser;
-
-    return Container(
-      padding: EdgeInsets.all(context.isMobile ? 24 : 32),
-      child: Column(
-        children: [
-          Hero(
-            tag: 'moderator_avatar',
-            child: Container(
-              width: context.isMobile ? 60 : 80,
-              height: context.isMobile ? 60 : 80,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 3),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.verified_user,
-                size: context.isMobile ? 30 : 40,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          SizedBox(height: context.isMobile ? 12 : 16),
-          Text(
-            user?.fullName ?? 'Modérateur',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: context.isMobile ? 16 : 18,
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 4),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              'MODÉRATEUR',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.9),
-                fontSize: context.isMobile ? 10 : 12,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMenuItems(ThemeData theme) {
-    return ListView(
-      padding: EdgeInsets.symmetric(vertical: context.isMobile ? 4 : 8),
-      children: [
-        _buildMenuItem(
-          icon: Icons.dashboard_rounded,
-          label: 'Vue d\'ensemble',
-          index: 0,
-          theme: theme,
-        ),
-        _buildMenuItem(
-          icon: Icons.photo_library_rounded,
-          label: 'Modération',
-          index: 1,
-          badge: _stats['pending_photos']?.toString(),
-          theme: theme,
-        ),
-        _buildMenuItem(
-          icon: Icons.history_rounded,
-          label: 'Historique',
-          index: 2,
-          theme: theme,
-        ),
-        _buildMenuItem(
-          icon: Icons.bar_chart_rounded,
-          label: 'Mes statistiques',
-          index: 3,
-          theme: theme,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMenuItem({
-    required IconData icon,
-    required String label,
-    required int index,
-    String? badge,
-    required ThemeData theme,
-  }) {
-    final isSelected = _selectedIndex == index;
-
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: context.isMobile ? 8 : 12,
-        vertical: 4,
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            setState(() => _selectedIndex = index);
-            if (context.isMobile) {
-              Navigator.of(context).pop();
-            }
-          },
-          borderRadius: BorderRadius.circular(12),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: EdgeInsets.symmetric(
-              horizontal: context.isMobile ? 16 : 20,
-              vertical: context.isMobile ? 12 : 16,
-            ),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? Colors.white.withOpacity(0.25)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isSelected
-                    ? Colors.white.withOpacity(0.4)
-                    : Colors.transparent,
-                width: 2,
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  icon,
-                  color: Colors.white,
-                  size: context.isMobile ? 22 : 24,
-                ),
-                SizedBox(width: context.isMobile ? 12 : 16),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: context.isMobile ? 14 : 16,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                    ),
-                  ),
-                ),
-                if (badge != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.red.withOpacity(0.4),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Text(
-                      badge,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Modération',
+                      style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLogoutButton(ThemeData theme) {
-    return Padding(
-      padding: EdgeInsets.all(context.isMobile ? 12 : 16),
-      child: OutlinedButton.icon(
-        onPressed: () async {
-          final confirmed = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Déconnexion'),
-              content: const Text('Voulez-vous vraiment vous déconnecter ?'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Annuler'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.red,
-                  ),
-                  child: const Text('Déconnexion'),
-                ),
-              ],
-            ),
-          );
-
-          if (confirmed == true && mounted) {
-            await context.read<AuthProvider>().signOut();
-          }
-        },
-        icon: const Icon(Icons.logout, color: Colors.white),
-        label: Text(
-          'Déconnexion',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: context.isMobile ? 14 : 16,
-          ),
-        ),
-        style: OutlinedButton.styleFrom(
-          side: const BorderSide(color: Colors.white, width: 2),
-          padding: EdgeInsets.symmetric(vertical: context.isMobile ? 12 : 16),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildContent(ThemeData theme) {
-    switch (_selectedIndex) {
-      case 0:
-        return _buildOverview(theme);
-      case 1:
-        return _buildModeration(theme);
-      case 2:
-        return _buildHistory(theme);
-      case 3:
-        return _buildMyStats(theme);
-      default:
-        return const SizedBox.shrink();
-    }
-  }
-
-  /// 📊 VUE D'ENSEMBLE
-  Widget _buildOverview(ThemeData theme) {
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: ListView(
-        padding: context.adaptivePadding,
-        children: [
-          _buildOverviewHeader(theme),
-          SizedBox(height: context.adaptiveSpacing * 2),
-          _buildStatsGrid(theme),
-          SizedBox(height: context.adaptiveSpacing * 2),
-          _buildQuickActions(theme),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOverviewHeader(ThemeData theme) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Vue d\'ensemble',
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  fontSize: ResponsiveHelper.getAdaptiveFontSize(context, 28),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                DateFormat('EEEE d MMMM yyyy', 'fr_FR').format(DateTime.now()),
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (!context.isMobile)
-          IconButton.filled(
-            onPressed: _loadData,
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Actualiser',
-          ),
-      ],
-    );
-  }
-
-  Widget _buildStatsGrid(ThemeData theme) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = ResponsiveHelper.getGridColumns(
-          context,
-          customMobile: 2,
-          customTablet: 2,
-          customDesktop: 4,
-        );
-
-        return GridView.count(
-          crossAxisCount: columns,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: context.adaptiveSpacing,
-          crossAxisSpacing: context.adaptiveSpacing,
-          childAspectRatio: context.isMobile ? 1.2 : 2.5,
-          children: [
-            _buildStatCard(
-              theme: theme,
-              icon: Icons.pending_rounded,
-              label: 'En attente',
-              value: _stats['pending_photos']?.toString() ?? '0',
-              color: Colors.orange,
-            ),
-            _buildStatCard(
-              theme: theme,
-              icon: Icons.check_circle_rounded,
-              label: 'Validées (24h)',
-              value: _stats['approved_today']?.toString() ?? '0',
-              color: Colors.green,
-            ),
-            _buildStatCard(
-              theme: theme,
-              icon: Icons.cancel_rounded,
-              label: 'Rejetées (24h)',
-              value: _stats['rejected_today']?.toString() ?? '0',
-              color: Colors.red,
-            ),
-            _buildStatCard(
-              theme: theme,
-              icon: Icons.assessment_rounded,
-              label: 'Total (24h)',
-              value: _stats['total_today']?.toString() ?? '0',
-              color: Colors.blue,
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildStatCard({
-    required ThemeData theme,
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    return Card(
-      elevation: context.isMobile ? 1 : 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: theme.dividerColor),
-      ),
-      child: Container(
-        padding: EdgeInsets.all(context.isMobile ? 16 : 12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [color.withOpacity(0.1), color.withOpacity(0.05)],
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Container(
-              padding: EdgeInsets.all(context.isMobile ? 8 : 6),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, color: color, size: context.isMobile ? 24 : 18),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                    fontSize: ResponsiveHelper.getAdaptiveFontSize(context, 22),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  label,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontSize: context.isMobile ? 12 : 11,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQuickActions(ThemeData theme) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: theme.dividerColor),
-      ),
-      child: Padding(
-        padding: context.adaptivePadding,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Actions rapides',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                FilledButton.icon(
-                  onPressed: () => setState(() => _selectedIndex = 1),
-                  icon: const Icon(Icons.photo_library),
-                  label: const Text('Modérer les photos'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  ),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => setState(() => _selectedIndex = 3),
-                  icon: const Icon(Icons.bar_chart),
-                  label: const Text('Mes statistiques'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 🖼️ MODÉRATION
-  Widget _buildModeration(ThemeData theme) {
-    return Column(
-      children: [
-        _buildModerationHeader(theme),
-        Expanded(
-          child: _pendingPhotos.isEmpty
-              ? _buildEmptyModeration(theme)
-              : _buildModerationGrid(theme),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildModerationHeader(ThemeData theme) {
-    return Container(
-      padding: context.adaptivePadding,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border(bottom: BorderSide(color: theme.dividerColor)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Modération des photos',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    fontSize: ResponsiveHelper.getAdaptiveFontSize(context, 28),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${_pendingPhotos.length} photo${_pendingPhotos.length > 1 ? 's' : ''} en attente',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          FilledButton.icon(
-            onPressed: _loadData,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Actualiser'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptyModeration(ThemeData theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.check_circle_outline,
-            size: context.isMobile ? 64 : 80,
-            color: Colors.green[300],
-          ),
-          SizedBox(height: context.adaptiveSpacing),
-          Text('Aucune photo en attente', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 8),
-          Text(
-            'Toutes les photos ont été modérées',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModerationGrid(ThemeData theme) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = ResponsiveHelper.getColumnsFromItemWidth(
-          constraints.maxWidth - (context.adaptivePadding.horizontal),
-          targetItemWidth: 280,
-        ).clamp(1, 6);
-
-        return CustomScrollView(
-          slivers: [
-            SliverPadding(
-              padding: context.adaptivePadding,
-              sliver: SliverGrid(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  crossAxisSpacing: context.adaptiveSpacing,
-                  mainAxisSpacing: context.adaptiveSpacing,
-                  childAspectRatio: ResponsiveHelper.getCardAspectRatio(context),
-                ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final photo = _pendingPhotos[index];
-                    return _buildPhotoCard(theme, photo);
-                  },
-                  childCount: _pendingPhotos.length,
-                ),
-              ),
-            ),
-            if (_hasMorePhotos)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.all(context.adaptiveSpacing * 2),
-                  child: Center(
-                    child: _isLoadingMore
-                        ? const CircularProgressIndicator()
-                        : OutlinedButton.icon(
-                            onPressed: _loadMorePhotos,
-                            icon: const Icon(Icons.expand_more),
-                            label: const Text('Charger plus'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 24,
-                                vertical: 16,
-                              ),
-                            ),
-                          ),
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildPhotoCard(ThemeData theme, Map<String, dynamic> photo) {
-    final remotePath = photo['remote_path'];
-    if (remotePath == null || remotePath.isEmpty) {
-      return Card(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: Colors.orange),
-              const SizedBox(height: 8),
-              Text('URL manquante', style: theme.textTheme.bodySmall),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final profiles = photo['profiles'];
-    final userName = profiles != null
-        ? (profiles['full_name'] ?? profiles['email'] ?? 'Utilisateur inconnu')
-        : 'Utilisateur inconnu';
-
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      elevation: context.isMobile ? 2 : 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: theme.dividerColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            flex: 3,
-            child: Hero(
-              tag: 'photo_${photo['id']}',
-              child: Stack(
-                children: [
-                  CachedNetworkImage(
-                    imageUrl: remotePath,
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: double.infinity,
-                    placeholder: (_, __) => Container(
-                      color: theme.colorScheme.surfaceVariant,
-                      child: const Center(child: CircularProgressIndicator()),
-                    ),
-                    errorWidget: (_, __, ___) => Container(
-                      color: theme.colorScheme.errorContainer,
-                      child: Icon(
-                        Icons.broken_image,
-                        size: 48,
-                        color: theme.colorScheme.error,
-                      ),
-                    ),
-                  ),
-                  if (photo['has_watermark'] == true)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.purple.withOpacity(0.9),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: const [
-                            Icon(Icons.verified, color: Colors.white, size: 14),
-                            SizedBox(width: 4),
-                            Text(
-                              'Watermark',
-                              style: TextStyle(color: Colors.white, fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.all(context.isMobile ? 12 : 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 12,
-                      backgroundColor: theme.colorScheme.primaryContainer,
-                      child: Text(
-                        userName[0].toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: theme.colorScheme.onPrimaryContainer,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        userName,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.access_time,
-                      size: 12,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 4),
                     Text(
-                      DateFormat('dd/MM HH:mm').format(
-                        DateTime.parse(photo['uploaded_at']),
-                      ),
+                      '${_stats['pending'] ?? 0} en attente',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ],
                 ),
-              ],
+              ),
+              IconButton.filledTonal(
+                onPressed: _loadData,
+                icon: const Icon(Icons.refresh, size: 20),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 📊 DASHBOARD MODERNE
+  Widget _buildDashboard(ThemeData theme) {
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            'Aujourd\'hui',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
             ),
           ),
-          Padding(
-            padding: EdgeInsets.all(context.isMobile ? 12 : 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _rejectPhoto(photo),
-                    icon: const Icon(Icons.close, size: 18),
-                    label: const Text('Refuser'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      side: const BorderSide(color: Colors.red),
-                      padding: EdgeInsets.symmetric(
-                        vertical: context.isMobile ? 12 : 8,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => _approvePhoto(photo),
-                    icon: const Icon(Icons.check, size: 18),
-                    label: const Text('Valider'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: EdgeInsets.symmetric(
-                        vertical: context.isMobile ? 12 : 8,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+          const SizedBox(height: 16),
+          _buildCompactStatsGrid(theme),
+          const SizedBox(height: 24),
+          _buildQuickActionCard(theme),
+          const SizedBox(height: 24),
+          _buildRecentActivity(theme),
+        ],
+      ),
+    );
+  }
+
+  /// 📊 COMPACT STATS
+  Widget _buildCompactStatsGrid(ThemeData theme) {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildCompactStat(
+            theme,
+            'En attente',
+            _stats['pending'] ?? 0,
+            Colors.orange,
+            Icons.pending,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildCompactStat(
+            theme,
+            'Validées',
+            _stats['approved'] ?? 0,
+            Colors.green,
+            Icons.check_circle,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildCompactStat(
+            theme,
+            'Rejetées',
+            _stats['rejected'] ?? 0,
+            Colors.red,
+            Icons.cancel,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCompactStat(
+    ThemeData theme,
+    String label,
+    int value,
+    Color color,
+    IconData icon,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12), // ✅ Réduit de 16 → 12
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min, // ✅ AJOUTÉ - évite expansion
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: color, size: 24), // ✅ Réduit 28 → 24
+          const SizedBox(height: 6), // ✅ Réduit 8 → 6
+          Text(
+            '$value',
+            style: theme.textTheme.titleLarge?.copyWith(
+              // ✅ headlineSmall → titleLarge
+              fontWeight: FontWeight.bold,
+              color: color,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2), // ✅ AJOUTÉ - espacement
+          Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontSize: 11,
+            ), // ✅ Force plus petit
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
     );
   }
 
+  /// ⚡ QUICK ACTION
+  Widget _buildQuickActionCard(ThemeData theme) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: theme.dividerColor),
+      ),
+      child: InkWell(
+        onTap: () => _tabController.animateTo(1),
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              colors: [
+                theme.colorScheme.primaryContainer,
+                theme.colorScheme.secondaryContainer,
+              ],
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.swipe,
+                  color: theme.colorScheme.primary,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Modérer maintenant',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'Swipe pour valider/rejeter',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.arrow_forward_ios, color: theme.colorScheme.primary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 📜 RECENT ACTIVITY
+  Widget _buildRecentActivity(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Activité récente',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 12),
+        ..._pendingPhotos.take(3).map((photo) {
+          final profile = photo['profiles'];
+          final userName =
+              profile?['full_name'] ?? profile?['email'] ?? 'Utilisateur';
+          return Card(
+            margin: const EdgeInsets.only(bottom: 8),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundImage: photo['remote_path'] != null
+                    ? CachedNetworkImageProvider(photo['remote_path'])
+                    : null,
+                child: photo['remote_path'] == null
+                    ? const Icon(Icons.person)
+                    : null,
+              ),
+              title: Text(
+                userName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                'Il y a ${_timeAgo(DateTime.parse(photo['uploaded_at']))}',
+                style: theme.textTheme.bodySmall,
+              ),
+              trailing: Chip(
+                label: const Text('En attente', style: TextStyle(fontSize: 11)),
+                backgroundColor: Colors.orange.withOpacity(0.2),
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  String _timeAgo(DateTime date) {
+    final diff = DateTime.now().difference(date);
+    if (diff.inHours < 1) return '${diff.inMinutes}min';
+    if (diff.inHours < 24) return '${diff.inHours}h';
+    return '${diff.inDays}j';
+  }
+
+  /// 🎴 SWIPE MODERATION
+  Widget _buildSwipeModeration(ThemeData theme) {
+    if (_pendingPhotos.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.check_circle, size: 80, color: Colors.green.shade300),
+            const SizedBox(height: 16),
+            Text('Tout est modéré !', style: theme.textTheme.headlineSmall),
+          ],
+        ),
+      );
+    }
+
+    return Stack(
+      children: [
+        // Photo courante
+        Positioned.fill(
+          child: _buildSwipeCard(theme, _pendingPhotos[_currentPhotoIndex]),
+        ),
+
+        // Counter
+        Positioned(
+          top: 16,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '${_currentPhotoIndex + 1} / ${_pendingPhotos.length}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // Actions
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: _buildSwipeActions(theme),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSwipeCard(ThemeData theme, Map<String, dynamic> photo) {
+    final profile = photo['profiles'];
+    final userName =
+        profile?['full_name'] ?? profile?['email'] ?? 'Utilisateur';
+
+    return Column(
+      children: [
+        Expanded(
+          child: Container(
+            margin: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  CachedNetworkImage(
+                    imageUrl: photo['remote_path'],
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => Container(
+                      color: theme.colorScheme.surfaceVariant,
+                      child: const Center(child: CircularProgressIndicator()),
+                    ),
+                  ),
+
+                  // Gradient overlay
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Colors.black87],
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: Colors.white,
+                                child: Text(
+                                  userName[0].toUpperCase(),
+                                  style: TextStyle(
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      userName,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      profile?['city'] ?? '',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              if (photo['has_watermark'] == true)
+                                Chip(
+                                  label: const Text(
+                                    'Caméra',
+                                    style: TextStyle(fontSize: 11),
+                                  ),
+                                  avatar: const Icon(
+                                    Icons.camera_alt,
+                                    size: 14,
+                                  ),
+                                  backgroundColor: Colors.purple.withOpacity(
+                                    0.3,
+                                  ),
+                                  labelStyle: const TextStyle(
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              Chip(
+                                label: Text(
+                                  _timeAgo(
+                                    DateTime.parse(photo['uploaded_at']),
+                                  ),
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                backgroundColor: Colors.white24,
+                                labelStyle: const TextStyle(
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSwipeActions(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          // Reject
+          FloatingActionButton.large(
+            heroTag: 'reject',
+            onPressed: () => _rejectPhoto(_pendingPhotos[_currentPhotoIndex]),
+            backgroundColor: Colors.red,
+            child: const Icon(Icons.close, size: 36),
+          ),
+
+          // Info
+          FloatingActionButton(
+            heroTag: 'info',
+            onPressed: _showPhotoInfo,
+            backgroundColor: theme.colorScheme.surface,
+            child: Icon(Icons.info_outline, color: theme.colorScheme.primary),
+          ),
+
+          // Approve
+          FloatingActionButton.large(
+            heroTag: 'approve',
+            onPressed: () => _approvePhoto(_pendingPhotos[_currentPhotoIndex]),
+            backgroundColor: Colors.green,
+            child: const Icon(Icons.check, size: 36),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPhotoInfo() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Détails de la photo',
+              style: Theme.of(ctx).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 16),
+            // Info photo
+            const Text('Informations détaillées ici...'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 👤 PROFILE
+  Widget _buildProfile(ThemeData theme) {
+    final authProvider = context.watch<AuthProvider>();
+    final user = authProvider.currentUser;
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Center(
+          child: Column(
+            children: [
+              CircleAvatar(
+                radius: 50,
+                backgroundColor: theme.colorScheme.primaryContainer,
+                child: Text(
+                  (user?.fullName ?? 'M')[0].toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 36,
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                user?.fullName ?? 'Modérateur',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Chip(
+                label: const Text('MODÉRATEUR'),
+                backgroundColor: theme.colorScheme.secondaryContainer,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 32),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.bar_chart),
+                title: const Text('Mes statistiques'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {},
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.history),
+                title: const Text('Historique'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {},
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.settings),
+                title: const Text('Paramètres'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {},
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        OutlinedButton.icon(
+          onPressed: () => context.read<AuthProvider>().signOut(),
+          icon: const Icon(Icons.logout),
+          label: const Text('Déconnexion'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.red,
+            side: const BorderSide(color: Colors.red),
+            padding: const EdgeInsets.symmetric(vertical: 16),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 🔽 BOTTOM NAV
+  Widget _buildBottomNav(ThemeData theme) {
+    return NavigationBar(
+      selectedIndex: _tabController.index,
+      onDestinationSelected: (i) => _tabController.animateTo(i),
+      destinations: [
+        NavigationDestination(
+          icon: const Icon(Icons.dashboard_outlined),
+          selectedIcon: const Icon(Icons.dashboard),
+          label: 'Dashboard',
+        ),
+        NavigationDestination(
+          icon: Badge(
+            label: Text('${_stats['pending'] ?? 0}'),
+            child: const Icon(Icons.photo_library_outlined),
+          ),
+          selectedIcon: const Icon(Icons.photo_library),
+          label: 'Modération',
+        ),
+        NavigationDestination(
+          icon: const Icon(Icons.person_outline),
+          selectedIcon: const Icon(Icons.person),
+          label: 'Profil',
+        ),
+      ],
+    );
+  }
+
   Future<void> _approvePhoto(Map<String, dynamic> photo) async {
     try {
-      final moderatorId = _supabase.auth.currentUser!.id;
-      await _supabase.from('photos').update({
-        'status': 'approved',
-        'moderated_at': DateTime.now().toIso8601String(),
-        'moderator_id': moderatorId,
-      }).eq('id', photo['id']);
-
-      await _supabase.from('notifications').insert({
-        'user_id': photo['user_id'],
-        'type': 'photo_approved',
-        'title': 'Photo approuvée ✓',
-        'body': 'Votre photo a été validée',
-        'created_at': DateTime.now().toIso8601String(),
-      });
+      await _supabase
+          .from('photos')
+          .update({
+            'status': 'approved',
+            'moderated_at': DateTime.now().toIso8601String(),
+            'moderator_id': _supabase.auth.currentUser!.id,
+          })
+          .eq('id', photo['id']);
 
       if (mounted) {
         setState(() {
-          _pendingPhotos.removeWhere((p) => p['id'] == photo['id']);
-          _stats['pending_photos'] = (_stats['pending_photos'] ?? 1) - 1;
-          _stats['approved_today'] = (_stats['approved_today'] ?? 0) + 1;
-          _stats['total_today'] = (_stats['total_today'] ?? 0) + 1;
+          _pendingPhotos.removeAt(_currentPhotoIndex);
+          if (_currentPhotoIndex >= _pendingPhotos.length &&
+              _currentPhotoIndex > 0) {
+            _currentPhotoIndex--;
+          }
+          _stats['pending'] = (_stats['pending'] ?? 1) - 1;
+          _stats['approved'] = (_stats['approved'] ?? 0) + 1;
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 12),
-                Text('Photo approuvée'),
-              ],
-            ),
+            content: Text('✅ Photo validée'),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
           ),
@@ -1114,11 +807,6 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
       }
     } catch (e) {
       debugPrint('❌ Approve error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
-        );
-      }
     }
   }
 
@@ -1129,20 +817,20 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
         title: const Text('Raison du rejet'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: [
-            'Contenu inapproprié',
-            'Mauvaise qualité',
-            'Pas de visage visible',
-            'Violation des règles',
-          ]
-              .map(
-                (r) => ListTile(
-                  title: Text(r),
-                  onTap: () => Navigator.pop(ctx, r),
-                  leading: const Icon(Icons.report_problem),
-                ),
-              )
-              .toList(),
+          children:
+              [
+                    'Contenu inapproprié',
+                    'Mauvaise qualité',
+                    'Pas de visage',
+                    'Autre',
+                  ]
+                  .map(
+                    (r) => ListTile(
+                      title: Text(r),
+                      onTap: () => Navigator.pop(ctx, r),
+                    ),
+                  )
+                  .toList(),
         ),
       ),
     );
@@ -1150,40 +838,31 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
     if (reason == null) return;
 
     try {
-      final moderatorId = _supabase.auth.currentUser!.id;
-      await _supabase.from('photos').update({
-        'status': 'rejected',
-        'moderated_at': DateTime.now().toIso8601String(),
-        'moderator_id': moderatorId,
-        'rejection_reason': reason,
-      }).eq('id', photo['id']);
-
-      await _supabase.from('notifications').insert({
-        'user_id': photo['user_id'],
-        'type': 'photo_rejected',
-        'title': 'Photo rejetée',
-        'body': 'Raison: $reason',
-        'created_at': DateTime.now().toIso8601String(),
-      });
+      await _supabase
+          .from('photos')
+          .update({
+            'status': 'rejected',
+            'moderated_at': DateTime.now().toIso8601String(),
+            'moderator_id': _supabase.auth.currentUser!.id,
+            'rejection_reason': reason,
+          })
+          .eq('id', photo['id']);
 
       if (mounted) {
         setState(() {
-          _pendingPhotos.removeWhere((p) => p['id'] == photo['id']);
-          _stats['pending_photos'] = (_stats['pending_photos'] ?? 1) - 1;
-          _stats['rejected_today'] = (_stats['rejected_today'] ?? 0) + 1;
-          _stats['total_today'] = (_stats['total_today'] ?? 0) + 1;
+          _pendingPhotos.removeAt(_currentPhotoIndex);
+          if (_currentPhotoIndex >= _pendingPhotos.length &&
+              _currentPhotoIndex > 0) {
+            _currentPhotoIndex--;
+          }
+          _stats['pending'] = (_stats['pending'] ?? 1) - 1;
+          _stats['rejected'] = (_stats['rejected'] ?? 0) + 1;
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.block, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(child: Text('Photo rejetée: $reason')),
-              ],
-            ),
-            backgroundColor: Colors.orange,
+            content: Text('❌ Photo rejetée: $reason'),
+            backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -1191,37 +870,5 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
     } catch (e) {
       debugPrint('❌ Reject error: $e');
     }
-  }
-
-  /// 📜 HISTORIQUE
-  Widget _buildHistory(ThemeData theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.history, size: 80, color: theme.colorScheme.primary),
-          const SizedBox(height: 16),
-          Text('Historique', style: theme.textTheme.headlineMedium),
-          const SizedBox(height: 8),
-          Text('À venir...', style: theme.textTheme.bodyLarge),
-        ],
-      ),
-    );
-  }
-
-  /// 📊 MES STATISTIQUES
-  Widget _buildMyStats(ThemeData theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.bar_chart, size: 80, color: theme.colorScheme.primary),
-          const SizedBox(height: 16),
-          Text('Mes statistiques', style: theme.textTheme.headlineMedium),
-          const SizedBox(height: 8),
-          Text('À venir...', style: theme.textTheme.bodyLarge),
-        ],
-      ),
-    );
   }
 }
