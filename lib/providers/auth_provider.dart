@@ -440,18 +440,29 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // 🎯 DÉTERMINATION DU STATUT
+  // 🎯 DÉTERMINATION DU STATUT - FIX: toujours notifier
   // ════════════════════════════════════════════════════════════════
 
   Future<void> _determineAuthStatus() async {
     if (_currentUser == null) {
       _status = AuthStatus.unauthenticated;
+      notifyListeners(); // ✅ FIX: Notifier systématiquement
       return;
     }
 
-    // Vérifier si le profil est complet
+    // ✅ FIX: Pour admin/moderator, toujours authenticated
+    if (_currentUser!.role == 'admin' || _currentUser!.role == 'moderator') {
+      _status = AuthStatus.authenticated;
+      notifyListeners(); // ✅ FIX: Notifier avant return
+      debugPrint('✅ Status determined: authenticated (${_currentUser!.role})');
+      return;
+    }
+
+    // Vérifier si le profil est complet (pour users normaux)
     if (_currentUser!.profileCompleted) {
       _status = AuthStatus.authenticated;
+      notifyListeners(); // ✅ FIX: Notifier avant return
+      debugPrint('✅ Status determined: authenticated (profile completed)');
       return;
     }
 
@@ -464,7 +475,8 @@ class AuthProvider extends ChangeNotifier {
       _status = AuthStatus.profileIncomplete; // Pas skip = proposer completion
     }
 
-    notifyListeners();
+    notifyListeners(); // ✅ Déjà présent ici
+    debugPrint('✅ Status determined: $_status');
   }
 
   // ════════════════════════════════════════════════════════════════

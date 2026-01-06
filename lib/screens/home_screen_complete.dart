@@ -2,13 +2,13 @@
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:profilum/screens/profile_detail_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/auth_provider.dart';
 import 'profile_completion_screen.dart';
+import 'profile_detail_screen.dart';
 import 'profile_page_carousel.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -830,10 +830,9 @@ class _DiscoverScreenState extends State<DiscoverScreen>
   }
 
   void _openProfile(BuildContext context, Map<String, dynamic> profile) {
-    // TODO: Navigation vers ProfileDetailScreen
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (ctx) => ProfileDetailScreen(profile: profile['id']),
+        builder: (ctx) => ProfileDetailScreen(profile: profile),
       ),
     );
     debugPrint('📱 Open profile: ${profile['id']}');

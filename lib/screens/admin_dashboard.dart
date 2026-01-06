@@ -497,7 +497,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     ),
                   ),
                 ),
-                if (badge != null)
+                if (badge != null && badge != '0')
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
@@ -648,7 +648,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       builder: (context, constraints) {
         final columns = ResponsiveHelper.getGridColumns(
           context,
-          customMobile: 1,
+          customMobile: 2,
           customTablet: 2,
           customDesktop: 4,
         );
@@ -1462,32 +1462,44 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   Future<void> _handleUserAction(
-    dynamic action,
+    String action,
     Map<String, dynamic> user,
   ) async {
-    if (action == 'delete') {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Confirmer suppression'),
-          content: Text('Supprimer ${user['full_name'] ?? user['email']} ?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Annuler'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              style: FilledButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Supprimer'),
-            ),
-          ],
-        ),
-      );
+    final supabase = Supabase.instance.client;
 
-      if (confirmed == true) {
+    switch (action) {
+      case 'delete':
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Confirmer suppression'),
+            content: Text('Supprimer ${user['full_name'] ?? user['email']} ?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Annuler'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('Supprimer'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirmed != true) return;
+
         try {
-          await _supabase.from('profiles').delete().eq('id', user['id']);
+          final response = await supabase
+              .from('profiles')
+              .delete()
+              .eq('id', user['id']);
+
+          if (response.error != null) {
+            throw Exception(response.error!.message);
+          }
+
           if (mounted) {
             setState(() => _users.removeWhere((u) => u['id'] == user['id']));
             ScaffoldMessenger.of(context).showSnackBar(
@@ -1498,9 +1510,30 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             );
           }
         } catch (e) {
-          debugPrint('❌ Delete error: $e');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur suppression: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
-      }
+        break;
+
+      case 'edit':
+        final updatedUser = await Navigator.push<Map<String, dynamic>>(
+          context,
+          MaterialPageRoute(builder: (_) => EditUserPage(user: user)),
+        );
+        if (updatedUser != null && mounted) {
+          setState(() {
+            final i = _users.indexWhere((u) => u['id'] == updatedUser['id']);
+            if (i != -1) _users[i] = updatedUser;
+          });
+        }
+        break;
+
+      default:
+        debugPrint('Action inconnue: $action');
     }
   }
 
@@ -1529,4 +1562,95 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       ],
     ),
   );
+}
+
+class EditUserPage extends StatefulWidget {
+  final Map<String, dynamic> user;
+  const EditUserPage({super.key, required this.user});
+
+  @override
+  State<EditUserPage> createState() => _EditUserPageState();
+}
+
+class _EditUserPageState extends State<EditUserPage> {
+  late TextEditingController _fullNameController;
+  late TextEditingController _emailController;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fullNameController = TextEditingController(text: widget.user['full_name']);
+    _emailController = TextEditingController(text: widget.user['email']);
+  }
+
+  @override
+  void dispose() {
+    _fullNameController.dispose();
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _loading = true);
+
+    try {
+      final response = await Supabase.instance.client
+          .from('profiles')
+          .update({
+            'full_name': _fullNameController.text.trim(),
+            'email': _emailController.text.trim(),
+          })
+          .eq('id', widget.user['id']);
+
+      if (response.error != null) {
+        throw Exception(response.error!.message);
+      }
+
+      Navigator.pop(context, {
+        'id': widget.user['id'],
+        'full_name': _fullNameController.text.trim(),
+        'email': _emailController.text.trim(),
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur mise à jour: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Éditer utilisateur')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            TextField(
+              controller: _fullNameController,
+              decoration: const InputDecoration(labelText: 'Nom complet'),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _emailController,
+              decoration: const InputDecoration(labelText: 'Email'),
+            ),
+            const SizedBox(height: 32),
+            ElevatedButton(
+              onPressed: _loading ? null : _save,
+              child: _loading
+                  ? const CircularProgressIndicator()
+                  : const Text('Enregistrer'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
