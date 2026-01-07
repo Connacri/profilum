@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/auth_provider.dart';
 import '../responsive_helper.dart';
+import '../widgets/account_deletion_dialog.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -306,6 +307,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               Expanded(child: _buildMenuItems(theme)),
               const Divider(color: Colors.white24),
               _buildLogoutButton(theme),
+              const Divider(),
+
+              // ❌ SUPPRESSION DÉFINITIVE
+              ListTile(
+                leading: const Icon(Icons.delete_forever, color: Colors.red),
+                title: const Text(
+                  'Supprimer mon compte',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                subtitle: const Text(
+                  'Action irréversible',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right, color: Colors.red),
+                onTap: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (_) => const AccountDeletionDialog(),
+                  );
+
+                  if (confirmed == true && mounted) {
+                    // Redirect automatique vers AuthScreen via AuthProvider
+                    // (le status change à accountDeleted)
+                  }
+                },
+              ),
             ],
           ),
         ),

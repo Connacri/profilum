@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 import '../services/services.dart';
+import '../widgets/account_deletion_dialog.dart';
 import 'profile_completion_screen.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -409,7 +410,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
                 // Logout
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 5,
+                  ),
                   child: OutlinedButton.icon(
                     onPressed: () async {
                       final confirmed = await showDialog<bool>(
@@ -445,6 +449,36 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
 
+                const Divider(),
+
+                // ❌ SUPPRESSION DÉFINITIVE
+                ListTile(
+                  leading: const Icon(Icons.delete_forever, color: Colors.red),
+                  title: const Text(
+                    'Supprimer mon compte',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Action irréversible',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.red),
+                  onTap: () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) => const AccountDeletionDialog(),
+                    );
+
+                    if (confirmed == true && mounted) {
+                      // Redirect automatique vers AuthScreen via AuthProvider
+                      // (le status change à accountDeleted)
+                    }
+                  },
+                ),
                 const SizedBox(height: 32),
 
                 // Version
