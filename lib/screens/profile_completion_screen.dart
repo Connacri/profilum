@@ -8,7 +8,7 @@ import '../models/photo_item.dart';
 import '../models/social_link_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/profile_completion_provider.dart';
-import '../widgets/photo_grid_item.dart';
+import '../widgets/photo_grid_item_with_badge.dart';
 
 class ProfileCompletionScreen extends StatefulWidget {
   const ProfileCompletionScreen({super.key});
@@ -71,9 +71,10 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     final user = authProvider.currentUser;
 
     if (user != null) {
-      final provider = context.read<ProfileCompletionProvider>();
-      provider.initialize(user);
-
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        context.read<ProfileCompletionProvider>().initialize(user);
+      });
       // Charger les données existantes
       _nameController.text = user.fullName ?? '';
       _bioController.text = user.bio ?? '';
@@ -553,6 +554,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
       ),
     );
   }
+  // ✅ Remplacer la méthode _buildProfilePhotoPage dans profile_completion_screen.dart
 
   Widget _buildProfilePhotoPage() {
     return Consumer<ProfileCompletionProvider>(
@@ -583,6 +585,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                 child: GestureDetector(
                   onTap: () => _showPhotoSourceDialog(isProfile: true),
                   child: Stack(
+                    clipBehavior: Clip.none, // ✅ Important pour le badge
                     children: [
                       Container(
                         width: 200,
@@ -623,6 +626,17 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                                 ],
                               ),
                       ),
+
+                      // ✅ Badge "NOUVEAU" pour photo locale
+                      if (profilePhoto != null &&
+                          profilePhoto.source == PhotoSource.local)
+                        Positioned(
+                          top: -5,
+                          right: -5,
+                          child: _buildNewBadgeProfile(),
+                        ),
+
+                      // Bouton edit (toujours affiché si photo présente)
                       if (profilePhoto != null)
                         Positioned(
                           bottom: 0,
@@ -631,6 +645,13 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
                             decoration: BoxDecoration(
                               color: Theme.of(context).colorScheme.primary,
                               shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
                             ),
                             padding: const EdgeInsets.all(8),
                             child: const Icon(
@@ -673,6 +694,42 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
           ),
         );
       },
+    );
+  }
+
+  /// ✅ NOUVEAU : Badge pour photo de profil
+  Widget _buildNewBadgeProfile() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.green.shade600, Colors.green.shade400],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.5),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.fiber_new, color: Colors.white, size: 16),
+          SizedBox(width: 4),
+          Text(
+            'NOUVEAU',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

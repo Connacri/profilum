@@ -1,4 +1,4 @@
-// lib/screens/home_screen_complete.dart - AVEC BANNIÈRE DE RAPPEL
+// lib/screens/home_screen_complete.dart - BANNER DYNAMIQUE
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +7,7 @@ import 'package:shimmer/shimmer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/auth_provider.dart';
+import '../providers/profile_completion_provider.dart'; // ✅ AJOUTÉ
 import 'profile_completion_screen.dart';
 import 'profile_detail_screen.dart';
 import 'profile_page_carousel.dart';
@@ -49,8 +50,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
       body: Column(
         children: [
-          // Bannière profil incomplet
-          if (showBanner) _buildCompletionBanner(context, user),
+          // ✅ FIX : Banner dynamique qui écoute ProfileCompletionProvider
+          if (showBanner) _buildDynamicCompletionBanner(context),
 
           // Contenu principal
           Expanded(child: _buildBody()),
@@ -100,91 +101,97 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _buildCompletionBanner(BuildContext context, dynamic user) {
+  /// ✅ FIX : Banner DYNAMIQUE qui écoute le ProfileCompletionProvider
+  Widget _buildDynamicCompletionBanner(BuildContext context) {
     final theme = Theme.of(context);
-    final completion = user.completionPercentage ?? 0;
 
-    return Material(
-      elevation: 2,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              theme.colorScheme.primaryContainer,
-              theme.colorScheme.secondaryContainer,
-            ],
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.account_circle,
-                color: Colors.white,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Profil incomplet ($completion%)',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Complétez votre profil pour maximiser vos matchs !',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onPrimaryContainer.withOpacity(
-                        0.8,
-                      ),
-                    ),
-                  ),
+    return Consumer<ProfileCompletionProvider>(
+      builder: (context, completionProvider, _) {
+        // ✅ Utiliser le pourcentage du provider (temps réel)
+        final completion = completionProvider.completionPercentage;
+
+        return Material(
+          elevation: 2,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  theme.colorScheme.primaryContainer,
+                  theme.colorScheme.secondaryContainer,
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            FilledButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ProfileCompletionScreen(),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary,
+                    shape: BoxShape.circle,
                   ),
-                );
-              },
-              style: FilledButton.styleFrom(
-                backgroundColor: theme.colorScheme.primary,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
+                  child: const Icon(
+                    Icons.account_circle,
+                    color: Colors.white,
+                    size: 24,
+                  ),
                 ),
-              ),
-              child: const Text('Compléter'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Profil incomplet ($completion%)', // ✅ Temps réel
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.onPrimaryContainer,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Complétez votre profil pour maximiser vos matchs !',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onPrimaryContainer
+                              .withOpacity(0.8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ProfileCompletionScreen(),
+                      ),
+                    );
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: theme.colorScheme.primary,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                  ),
+                  child: const Text('Compléter'),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: () {
+                    setState(() => _bannerDismissed = true);
+                  },
+                  tooltip: 'Fermer',
+                  color: theme.colorScheme.onPrimaryContainer,
+                ),
+              ],
             ),
-            IconButton(
-              icon: const Icon(Icons.close, size: 20),
-              onPressed: () {
-                setState(() => _bannerDismissed = true);
-              },
-              tooltip: 'Fermer',
-              color: theme.colorScheme.onPrimaryContainer,
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -205,7 +212,7 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // ============================================
-// DISCOVER PAGE
+// DISCOVER PAGE (inchangé)
 // ============================================
 
 class DiscoverScreen extends StatefulWidget {
@@ -235,7 +242,7 @@ class _DiscoverScreenState extends State<DiscoverScreen>
   int _page = 0;
   final int _pageSize = 20;
 
-  String _filter = 'nearby'; // nearby, recent, popular
+  String _filter = 'nearby';
 
   @override
   void initState() {
@@ -302,7 +309,6 @@ class _DiscoverScreenState extends State<DiscoverScreen>
           )
         ''')
           .neq('id', currentUserId)
-          // .eq('profile_completed', true)
           .not('role', 'in', '("admin","moderator")')
           .order('last_active_at', ascending: false)
           .range(_page * _pageSize, (_page + 1) * _pageSize - 1);
@@ -349,7 +355,6 @@ class _DiscoverScreenState extends State<DiscoverScreen>
             )
           ''')
           .neq('id', currentUserId)
-          // .eq('profile_completed', true)
           .order('last_active_at', ascending: false)
           .range(_page * _pageSize, (_page + 1) * _pageSize - 1);
 
@@ -402,7 +407,6 @@ class _DiscoverScreenState extends State<DiscoverScreen>
       body: CustomScrollView(
         controller: _scrollController,
         slivers: [
-          // 🎨 Header moderne avec filtres
           SliverAppBar(
             expandedHeight: 160,
             pinned: true,
@@ -439,7 +443,6 @@ class _DiscoverScreenState extends State<DiscoverScreen>
                               ),
                             ),
                             const Spacer(),
-                            // Badge matches
                             if (_matchedUserIds.isNotEmpty)
                               Container(
                                 padding: const EdgeInsets.symmetric(
@@ -497,7 +500,6 @@ class _DiscoverScreenState extends State<DiscoverScreen>
             ),
           ),
 
-          // 📱 Grille de profils
           if (_isLoading)
             SliverPadding(
               padding: const EdgeInsets.all(16),
@@ -538,7 +540,6 @@ class _DiscoverScreenState extends State<DiscoverScreen>
               ),
             ),
 
-          // Loading indicator
           if (_isLoadingMore)
             const SliverToBoxAdapter(
               child: Padding(
@@ -630,7 +631,6 @@ class _DiscoverScreenState extends State<DiscoverScreen>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // Image
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
                 child: imageUrl != null
@@ -658,7 +658,6 @@ class _DiscoverScreenState extends State<DiscoverScreen>
                       ),
               ),
 
-              // Gradient overlay
               Positioned(
                 bottom: 0,
                 left: 0,
@@ -681,7 +680,6 @@ class _DiscoverScreenState extends State<DiscoverScreen>
                 ),
               ),
 
-              // Info
               Positioned(
                 bottom: 12,
                 left: 12,
@@ -732,7 +730,6 @@ class _DiscoverScreenState extends State<DiscoverScreen>
                 ),
               ),
 
-              // Badge en ligne
               if (isOnline)
                 Positioned(
                   top: 12,
@@ -835,13 +832,9 @@ class _DiscoverScreenState extends State<DiscoverScreen>
         builder: (ctx) => ProfileDetailScreen(profile: profile),
       ),
     );
-    debugPrint('📱 Open profile: ${profile['id']}');
   }
 }
 
-// ============================================
-// MATCHES PAGE
-// ============================================
 class _MatchesPage extends StatelessWidget {
   const _MatchesPage();
 
@@ -868,14 +861,6 @@ class _MatchesPage extends StatelessWidget {
               '💕 Tes matchs apparaîtront ici',
               style: theme.textTheme.bodyLarge,
             ),
-            const SizedBox(height: 32),
-            Text(
-              '🚧 Liste de matchs à venir',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: Colors.grey[600],
-              ),
-              textAlign: TextAlign.center,
-            ),
           ],
         ),
       ),
@@ -883,9 +868,6 @@ class _MatchesPage extends StatelessWidget {
   }
 }
 
-// ============================================
-// MESSAGES PAGE
-// ============================================
 class _MessagesPage extends StatelessWidget {
   const _MessagesPage();
 
@@ -913,14 +895,6 @@ class _MessagesPage extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text('💬 Messagerie P2P', style: theme.textTheme.bodyLarge),
-            const SizedBox(height: 32),
-            Text(
-              '🚧 À venir dans la prochaine version',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: Colors.grey[600],
-              ),
-              textAlign: TextAlign.center,
-            ),
           ],
         ),
       ),
