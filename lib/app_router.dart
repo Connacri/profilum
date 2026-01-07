@@ -534,7 +534,7 @@ class AppRouter extends RouterDelegate<AppRouteConfiguration>
         if (status == AuthStatus.unauthenticated ||
             status == AuthStatus.error ||
             status == AuthStatus.accountDeleted)
-          const MaterialPage(child: AuthScreen()),
+          const MaterialPage(child: AuthScreenAdvanced()),
 
         // Email Verification
         if (status == AuthStatus.emailVerificationPending)

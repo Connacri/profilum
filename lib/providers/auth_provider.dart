@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 
 import '../objectbox_entities_complete.dart';
 import '../services/services.dart';
+import '../widgets/auth_rate_limiter.dart';
 
 enum AuthStatus {
   initial,
@@ -24,6 +25,7 @@ enum AuthStatus {
 class AuthProvider extends ChangeNotifier {
   final SupabaseClient _supabase;
   final ObjectBoxService _objectBox;
+  final AuthRateLimiter? _rateLimiter; // ✅ NOUVEAU (optionnel)
 
   AuthStatus _status = AuthStatus.initial;
   UserEntity? _currentUser;
@@ -40,10 +42,16 @@ class AuthProvider extends ChangeNotifier {
   static const String _keySkippedAt = 'profile_skipped_at';
   static const String _keyLastReminder = 'last_completion_reminder';
 
-  AuthProvider(this._supabase, this._objectBox) {
+  // AuthProvider(this._supabase, this._objectBox) {
+  //   _initAuth();
+  // }
+  AuthProvider(
+    this._supabase,
+    this._objectBox, {
+    AuthRateLimiter? rateLimiter, // ✅ NOUVEAU
+  }) : _rateLimiter = rateLimiter {
     _initAuth();
   }
-
   // Getters
   AuthStatus get status => _status;
   UserEntity? get currentUser => _currentUser;
@@ -208,9 +216,20 @@ class AuthProvider extends ChangeNotifier {
             msg.contains('been registered'));
   }
 
+  /// 🔍 NOUVEAU : Détecter si l'email n'existe pas dans Supabase
+  bool _isEmailNotFound(String errorMessage) {
+    final msg = errorMessage.toLowerCase();
+    return msg.contains('invalid login credentials') ||
+        msg.contains('user not found') ||
+        msg.contains('email not found');
+  }
   // ════════════════════════════════════════════════════════════════
   // 🔧 SIGNIN AMÉLIORÉ
   // ════════════════════════════════════════════════════════════════
+
+  // ────────────────────────────────────────────────────────────────
+  // 2️⃣ MODIFIER LA MÉTHODE signIn() - AJOUTER CE BLOC DANS LE CATCH
+  // ────────────────────────────────────────────────────────────────
 
   Future<bool> signIn({required String email, required String password}) async {
     debugPrint('════════════════════════════════════════');
@@ -222,7 +241,6 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // ✅ Tenter la connexion
       final response = await _supabase.auth.signInWithPassword(
         email: email,
         password: password,
@@ -237,15 +255,13 @@ class AuthProvider extends ChangeNotifier {
       debugPrint('   User ID: ${user.id}');
       debugPrint('   Email confirmed: ${user.emailConfirmedAt != null}');
 
-      // ✅ Vérifier si l'email est confirmé
       if (user.emailConfirmedAt == null) {
-        debugPrint('⚠️ Email not verified, redirecting to verification screen');
+        debugPrint('⚠️ Email not verified');
         _status = AuthStatus.emailVerificationPending;
         notifyListeners();
         return true;
       }
 
-      // ✅ Charger le profil
       await _loadUserFromSupabase(user.id);
       _startSessionManagement();
 
@@ -259,6 +275,19 @@ class AuthProvider extends ChangeNotifier {
       debugPrint('   Status Code: ${e.statusCode}');
       debugPrint('   Message: ${e.message}');
 
+      // ✅ ========== AJOUTER CE BLOC ICI (AVANT LES AUTRES CONDITIONS) ==========
+
+      // 🔍 Détecter email inexistant → basculer vers signup
+      if (e.statusCode == '400' && _isEmailNotFound(e.message)) {
+        _errorMessage = 'email_not_found'; // ⚠️ Code spécial pour l'UI
+        _status = AuthStatus.error;
+        notifyListeners();
+        return false;
+      }
+
+      // ✅ ========== FIN DU BLOC À AJOUTER ==========
+
+      // Le reste du code existant continue...
       _errorMessage = _handleAuthError(e);
       _status = AuthStatus.error;
       notifyListeners();
@@ -278,12 +307,17 @@ class AuthProvider extends ChangeNotifier {
   // 🔧 GESTION DES ERREURS AUTH AMÉLIORÉE
   // ════════════════════════════════════════════════════════════════
 
+  // ────────────────────────────────────────────────────────────────
+  // 3️⃣ AMÉLIORER _handleAuthError() (OPTIONNEL mais recommandé)
+  // ────────────────────────────────────────────────────────────────
+
   String _handleAuthError(AuthException e) {
     debugPrint('🔍 Parsing Auth error: ${e.statusCode} - ${e.message}');
 
     switch (e.statusCode) {
       case '400':
         if (e.message.contains('Invalid login credentials')) {
+          // ✅ Message générique (pour que le rate limiter détecte le password)
           return 'Email ou mot de passe incorrect';
         }
         if (e.message.contains('Email not confirmed')) {

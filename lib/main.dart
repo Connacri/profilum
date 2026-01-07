@@ -11,6 +11,7 @@ import 'providers/auth_provider.dart';
 import 'providers/profile_completion_provider.dart';
 import 'providers/theme_provider.dart';
 import 'services/image_service.dart';
+import 'widgets/auth_rate_limiter.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,6 +47,7 @@ class ProfilumApp extends StatelessWidget {
           create: (context) => AuthProvider(
             context.read<SupabaseClient>(),
             context.read<ObjectBoxService>(),
+            rateLimiter: context.read<AuthRateLimiter>(), // ✅ Injecter
           ),
         ),
 
