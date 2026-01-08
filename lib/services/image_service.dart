@@ -1,4 +1,4 @@
-// lib/services/image_service.dart - REFACTORISÉ
+// lib/services/image_service.dart - ✅ CORRIGÉ POUR MODÉRATION
 
 import 'dart:io';
 
@@ -10,12 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
-/// Types de photos supportés
-enum PhotoType {
-  profile, // Photo de profil (1 max)
-  cover, // Photos de couverture (3 max)
-  gallery, // Photos de galerie (6 max)
-}
+enum PhotoType { profile, cover, gallery }
 
 class ImageService {
   final ImagePicker _picker = ImagePicker();
@@ -28,7 +23,10 @@ class ImageService {
 
   ImageService(this._supabase);
 
-  /// Capturer depuis la caméra (AVEC watermark)
+  // ═══════════════════════════════════════════════════════════
+  // 📸 CAPTURE & SELECTION (inchangé)
+  // ═══════════════════════════════════════════════════════════
+
   Future<File?> captureFromCamera() async {
     try {
       if (Platform.isWindows || Platform.isLinux) {
@@ -44,107 +42,90 @@ class ImageService {
       );
 
       if (photo == null) return null;
-
-      final file = File(photo.path);
-      // ✅ Toujours ajouter le watermark pour les photos caméra
-      return await _addWatermarkAndCompress(file, fromCamera: true);
+      return await _addWatermarkAndCompress(File(photo.path), fromCamera: true);
     } catch (e) {
       debugPrint('Camera error: $e');
       return null;
     }
   }
 
-  /// Choisir depuis la galerie (SANS watermark)
   Future<File?> pickFromGallery() async {
     try {
-      // Windows/Linux: utiliser file_picker
       if (Platform.isWindows || Platform.isLinux) {
         final result = await FilePicker.platform.pickFiles(
           type: FileType.image,
           allowMultiple: false,
         );
-
         if (result == null || result.files.isEmpty) return null;
-
-        final file = File(result.files.first.path!);
-        // ✅ PAS de watermark pour les photos galerie
-        return await _addWatermarkAndCompress(file, fromCamera: false);
+        return await _addWatermarkAndCompress(
+          File(result.files.first.path!),
+          fromCamera: false,
+        );
       }
 
-      // Android/iOS: utiliser image_picker
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
         maxWidth: _maxWidth.toDouble(),
         maxHeight: _maxHeight.toDouble(),
         imageQuality: 100,
       );
-
       if (image == null) return null;
-
-      final file = File(image.path);
-      // ✅ PAS de watermark pour les photos galerie
-      return await _addWatermarkAndCompress(file, fromCamera: false);
+      return await _addWatermarkAndCompress(
+        File(image.path),
+        fromCamera: false,
+      );
     } catch (e) {
       debugPrint('Gallery error: $e');
       return null;
     }
   }
 
-  /// Choisir plusieurs photos depuis la galerie
   Future<List<File>> pickMultipleFromGallery({int maxImages = 6}) async {
     try {
-      // Windows/Linux: utiliser file_picker
       if (Platform.isWindows || Platform.isLinux) {
         final result = await FilePicker.platform.pickFiles(
           type: FileType.image,
           allowMultiple: true,
         );
-
         if (result == null || result.files.isEmpty) return [];
 
-        final List<File> processedImages = [];
+        final List<File> processed = [];
         for (var i = 0; i < result.files.length && i < maxImages; i++) {
-          final file = File(result.files[i].path!);
-          final processed = await _addWatermarkAndCompress(
-            file,
+          final file = await _addWatermarkAndCompress(
+            File(result.files[i].path!),
             fromCamera: false,
           );
-          if (processed != null) {
-            processedImages.add(processed);
-          }
+          if (file != null) processed.add(file);
         }
-
-        return processedImages;
+        return processed;
       }
 
-      // Android/iOS: utiliser image_picker
-      final List<XFile> images = await _picker.pickMultiImage(
+      final images = await _picker.pickMultiImage(
         maxWidth: _maxWidth.toDouble(),
         maxHeight: _maxHeight.toDouble(),
         imageQuality: 100,
       );
-
       if (images.isEmpty) return [];
 
-      final List<File> processedImages = [];
+      final List<File> processed = [];
       for (var i = 0; i < images.length && i < maxImages; i++) {
-        final processed = await _addWatermarkAndCompress(
+        final file = await _addWatermarkAndCompress(
           File(images[i].path),
           fromCamera: false,
         );
-        if (processed != null) {
-          processedImages.add(processed);
-        }
+        if (file != null) processed.add(file);
       }
-
-      return processedImages;
+      return processed;
     } catch (e) {
       debugPrint('Multiple gallery error: $e');
       return [];
     }
   }
 
-  /// Traitement: Compression + Watermark optionnel
+  // ═══════════════════════════════════════════════════════════
+  // 🖼️ IMAGE PROCESSING (inchangé)
+  // ═══════════════════════════════════════════════════════════
+
   Future<File?> _addWatermarkAndCompress(
     File imageFile, {
     required bool fromCamera,
@@ -152,10 +133,8 @@ class ImageService {
     try {
       final bytes = await imageFile.readAsBytes();
       img.Image? image = img.decodeImage(bytes);
-
       if (image == null) return null;
 
-      // Resize avec interpolation cubique
       if (image.width > _maxWidth || image.height > _maxHeight) {
         image = img.copyResize(
           image,
@@ -165,14 +144,9 @@ class ImageService {
         );
       }
 
-      // ✅ Watermark SEULEMENT si photo caméra
-      if (fromCamera) {
-        image = _addWatermark(image);
-      }
+      if (fromCamera) image = _addWatermark(image);
 
-      // Compression JPEG (qualité 85)
-      final List<int> jpegBytes = img.encodeJpg(image, quality: _quality);
-
+      final jpegBytes = img.encodeJpg(image, quality: _quality);
       final tempDir = await getTemporaryDirectory();
       final fileName = '${const Uuid().v4()}.jpg';
       final jpegFile = File('${tempDir.path}/$fileName');
@@ -185,17 +159,14 @@ class ImageService {
     }
   }
 
-  /// Ajouter le watermark "profilum"
   img.Image _addWatermark(img.Image image) {
     final watermarkColor = img.ColorRgb8(255, 255, 255);
     final shadowColor = img.ColorRgb8(0, 0, 0);
-
     const fontSize = 24;
     const padding = 20;
     final x = image.width - (fontSize * _watermarkText.length ~/ 2) - padding;
     final y = padding;
 
-    // Ombre
     img.drawString(
       image,
       _watermarkText,
@@ -204,8 +175,6 @@ class ImageService {
       y: y + 2,
       color: shadowColor,
     );
-
-    // Texte blanc
     img.drawString(
       image,
       _watermarkText,
@@ -214,42 +183,39 @@ class ImageService {
       y: y,
       color: watermarkColor,
     );
-
     return image;
   }
 
-  /// ✅ NOUVEAU: Upload avec type de photo
+  // ═══════════════════════════════════════════════════════════
+  // ✅ UPLOAD - RETOURNE PATH (PAS URL)
+  // ═══════════════════════════════════════════════════════════
+
+  /// Upload et retourne le PATH (ex: "user_123/gallery/uuid.jpg")
+  /// ⚠️ NE PAS stocker l'URL complète dans la DB
   Future<String?> uploadToStorage({
     required File imageFile,
     required String userId,
     required PhotoType photoType,
   }) async {
     try {
-      // Déterminer le bucket et le dossier selon le type
-      final String bucket = 'profiles';
-      final String folder = _getFolderForType(photoType);
-
+      const bucket = 'profiles';
+      final folder = _getFolderForType(photoType);
       final fileName = '${const Uuid().v4()}.jpg';
-      final fullPath = '$userId/$folder/$fileName';
+      final fullPath = '$userId/$folder/$fileName'; // ✅ PATH uniquement
 
-      debugPrint('🔵 Upload attempt: bucket=$bucket, path=$fullPath');
+      debugPrint('🔵 Upload: bucket=$bucket, path=$fullPath');
 
-      // Vérifier que le bucket existe
+      // Vérifier bucket existe
       try {
         await _supabase.storage
             .from(bucket)
             .list(path: '', searchOptions: const SearchOptions(limit: 1));
       } catch (e) {
-        debugPrint(
-          '❌ Bucket "$bucket" not found. Please create it in Supabase Dashboard.',
-        );
-        throw StorageException(
-          'Le bucket de stockage "$bucket" n\'existe pas. '
-          'Veuillez le créer dans le tableau de bord Supabase.',
-        );
+        debugPrint('❌ Bucket "$bucket" not found');
+        throw StorageException('Bucket "$bucket" inexistant');
       }
 
-      // Upload du fichier
+      // Upload
       await _supabase.storage
           .from(bucket)
           .upload(
@@ -261,10 +227,8 @@ class ImageService {
             ),
           );
 
-      final publicUrl = _supabase.storage.from(bucket).getPublicUrl(fullPath);
-      debugPrint('✅ Upload success: $publicUrl');
-
-      return publicUrl;
+      debugPrint('✅ Upload success: $fullPath');
+      return fullPath; // ✅ Retourner PATH uniquement
     } on StorageException catch (e) {
       debugPrint('❌ StorageException: ${e.message} (${e.statusCode})');
       _logBucketError(e);
@@ -275,7 +239,6 @@ class ImageService {
     }
   }
 
-  /// Helper: Obtenir le dossier selon le type de photo
   String _getFolderForType(PhotoType type) {
     switch (type) {
       case PhotoType.profile:
@@ -287,7 +250,6 @@ class ImageService {
     }
   }
 
-  /// Logger les erreurs de bucket
   void _logBucketError(StorageException e) {
     if (e.statusCode == 404 || e.message.contains('Bucket not found')) {
       debugPrint('');
@@ -295,34 +257,27 @@ class ImageService {
       debugPrint('⚠️  ERREUR : Bucket Supabase manquant');
       debugPrint('════════════════════════════════════════════════════');
       debugPrint('Bucket requis : "profiles"');
-      debugPrint('');
       debugPrint('📋 Instructions :');
-      debugPrint('1. Allez sur https://supabase.com/dashboard');
-      debugPrint('2. Sélectionnez votre projet');
-      debugPrint('3. Menu Storage → Create bucket');
-      debugPrint('4. Nom : "profiles"');
-      debugPrint('5. Cochez "Public bucket"');
+      debugPrint('1. https://supabase.com/dashboard');
+      debugPrint('2. Storage → Create bucket');
+      debugPrint('3. Nom : "profiles"');
+      debugPrint('4. Cocher "Public bucket"');
       debugPrint('════════════════════════════════════════════════════');
-      debugPrint('');
     }
   }
 
-  /// Supprimer une photo du storage
-  Future<bool> deleteFromStorage({required String url}) async {
+  // ═══════════════════════════════════════════════════════════
+  // ✅ DELETE - UTILISE PATH DIRECT
+  // ═══════════════════════════════════════════════════════════
+
+  /// Supprime une photo via son PATH (ex: "user_123/gallery/uuid.jpg")
+  /// ⚠️ NE PAS passer une URL complète
+  Future<bool> deleteFromStorage({required String path}) async {
     try {
-      final uri = Uri.parse(url);
-      // Extraire le path après le bucket
-      final segments = uri.pathSegments;
-      final bucketIndex = segments.indexOf('profiles');
-
-      if (bucketIndex == -1) {
-        debugPrint('❌ Invalid storage URL: $url');
-        return false;
-      }
-
-      final path = segments.sublist(bucketIndex + 1).join('/');
+      debugPrint('🗑️ Deleting from storage: $path');
 
       await _supabase.storage.from('profiles').remove([path]);
+
       debugPrint('✅ Photo deleted: $path');
       return true;
     } catch (e) {
@@ -331,18 +286,17 @@ class ImageService {
     }
   }
 
-  /// Obtenir la taille d'une image
-  Future<int> getImageSize(File file) async {
-    return await file.length();
-  }
+  // ═══════════════════════════════════════════════════════════
+  // 🔧 HELPERS
+  // ═══════════════════════════════════════════════════════════
 
-  /// Valider le format d'image
+  Future<int> getImageSize(File file) async => await file.length();
+
   bool isValidImageFormat(String path) {
     final ext = path.toLowerCase().split('.').last;
     return ['jpg', 'jpeg', 'png', 'webp'].contains(ext);
   }
 
-  /// ✅ NOUVEAU: Limites selon le type
   int getMaxPhotos(PhotoType type) {
     switch (type) {
       case PhotoType.profile:

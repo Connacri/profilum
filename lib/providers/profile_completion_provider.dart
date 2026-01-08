@@ -1,3 +1,5 @@
+// lib/providers/profile_completion_provider.dart - ✅ CORRIGÉ
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -17,16 +19,14 @@ class ProfileCompletionProvider extends ChangeNotifier {
   final ImageService _imageService;
 
   Timer? _calculationTimer;
-
   UserEntity? _user;
 
-  // ✅ Photos actuelles
   PhotoItem? _profilePhoto;
   List<PhotoItem> _galleryPhotos = [];
 
-  // ✅ NOUVEAU : Tracking des suppressions (pour photos distantes)
-  final Set<String> _deletedPhotoIds = {};
-  String? _deletedProfilePhotoId;
+  // ✅ Tracking suppressions (PATH, pas URL)
+  final Set<String> _deletedPhotoPaths = {};
+  String? _deletedProfilePhotoPath;
 
   bool _isLoading = false;
   bool _isLoadingPhotos = false;
@@ -62,7 +62,10 @@ class ProfileCompletionProvider extends ChangeNotifier {
     super.dispose();
   }
 
-  // Getters
+  // ═══════════════════════════════════════════════════════════
+  // GETTERS
+  // ═══════════════════════════════════════════════════════════
+
   int get completionPercentage {
     final completed = _completionFields.values.where((v) => v).length;
     return ((completed / _completionFields.length) * 100).round();
@@ -74,27 +77,25 @@ class ProfileCompletionProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   UserEntity? get user => _user;
   ImageService get imageService => _imageService;
-
   PhotoItem? get profilePhoto => _profilePhoto;
   List<PhotoItem> get galleryPhotos => _galleryPhotos;
-
   bool get hasProfilePhoto => _profilePhoto != null;
   bool get hasMinGallery => _galleryPhotos.length >= 3;
 
-  /// Initialisation
+  // ═══════════════════════════════════════════════════════════
+  // INITIALISATION
+  // ═══════════════════════════════════════════════════════════
+
   Future<void> initialize(UserEntity user) async {
     _user = user;
     _updateCompletionFields();
-
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      _loadExistingPhotos();
-    });
+    SchedulerBinding.instance.addPostFrameCallback(
+      (_) => _loadExistingPhotos(),
+    );
   }
 
-  /// Charger les photos depuis ObjectBox avec toutes les infos (status, watermark, etc.)
   Future<void> _loadExistingPhotos() async {
     if (_user == null) return;
-
     _isLoadingPhotos = true;
     safeNotify();
 
@@ -103,45 +104,41 @@ class ProfileCompletionProvider extends ChangeNotifier {
       final approved = photos.where((p) => p.status == 'approved').toList();
       approved.sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
 
-      // ✅ Photo de profil avec infos complètes
       final profilePhotoEntity = approved
           .where((p) => p.type == 'profile')
           .firstOrNull;
-
       if (profilePhotoEntity != null && profilePhotoEntity.remotePath != null) {
         _profilePhoto = PhotoItem(
           id: profilePhotoEntity.photoId,
           source: PhotoSource.remote,
-          remotePath: profilePhotoEntity.remotePath,
+          remotePath: profilePhotoEntity.remotePath, // ✅ PATH stocké
           displayOrder: 0,
           type: 'profile',
-          status: profilePhotoEntity.status, // ✅ AJOUTÉ
-          hasWatermark: profilePhotoEntity.hasWatermark, // ✅ AJOUTÉ
-          uploadedAt: profilePhotoEntity.uploadedAt, // ✅ AJOUTÉ
-          moderatedAt: profilePhotoEntity.moderatedAt, // ✅ AJOUTÉ
+          status: profilePhotoEntity.status,
+          hasWatermark: profilePhotoEntity.hasWatermark,
+          uploadedAt: profilePhotoEntity.uploadedAt,
+          moderatedAt: profilePhotoEntity.moderatedAt,
         );
       }
 
-      // ✅ Photos galerie avec infos complètes
       _galleryPhotos = approved
           .where((p) => p.type == 'gallery' && p.remotePath != null)
           .map(
             (p) => PhotoItem(
               id: p.photoId,
               source: PhotoSource.remote,
-              remotePath: p.remotePath,
+              remotePath: p.remotePath, // ✅ PATH stocké
               displayOrder: p.displayOrder,
               type: 'gallery',
-              status: p.status, // ✅ AJOUTÉ
-              hasWatermark: p.hasWatermark, // ✅ AJOUTÉ
-              uploadedAt: p.uploadedAt, // ✅ AJOUTÉ
-              moderatedAt: p.moderatedAt, // ✅ AJOUTÉ
+              status: p.status,
+              hasWatermark: p.hasWatermark,
+              uploadedAt: p.uploadedAt,
+              moderatedAt: p.moderatedAt,
             ),
           )
           .toList();
 
       debugPrint('✅ Loaded ${_galleryPhotos.length} existing photos');
-
       _updateCompletionFields();
     } catch (e) {
       debugPrint('❌ Error loading photos: $e');
@@ -168,7 +165,6 @@ class ProfileCompletionProvider extends ChangeNotifier {
         _user!.relationshipStatus?.isNotEmpty ?? false;
     _completionFields['interests'] = _user!.interests.length >= 3;
     _completionFields['social_links'] = _user!.socialLinks.isNotEmpty;
-
     _completionFields['profile_photo'] = _profilePhoto != null;
     _completionFields['gallery_photos'] = _galleryPhotos.length >= 3;
 
@@ -223,23 +219,25 @@ class ProfileCompletionProvider extends ChangeNotifier {
     _updateCompletionFields();
   }
 
-  /// ✅ Ajouter/Remplacer photo de profil
+  // ═══════════════════════════════════════════════════════════
+  // GESTION PHOTOS
+  // ═══════════════════════════════════════════════════════════
+
   Future<void> setProfilePhoto({required bool fromCamera}) async {
     final photo = fromCamera
         ? await _imageService.captureFromCamera()
         : await _imageService.pickFromGallery();
 
     if (photo != null) {
-      // ✅ Si photo existante distante, la marquer pour suppression
+      // ✅ Marquer ancienne photo pour suppression (PATH)
       if (_profilePhoto != null &&
           _profilePhoto!.source == PhotoSource.remote) {
-        _deletedProfilePhotoId = _profilePhoto!.id;
+        _deletedProfilePhotoPath = _profilePhoto!.remotePath;
         debugPrint(
-          '🗑️ Profile photo marquée pour suppression: ${_profilePhoto!.id}',
+          '🗑️ Profile photo marked for deletion: $_deletedProfilePhotoPath',
         );
       }
 
-      // Ajouter la nouvelle photo (locale)
       _profilePhoto = PhotoItem(
         id: const Uuid().v4(),
         source: PhotoSource.local,
@@ -250,19 +248,17 @@ class ProfileCompletionProvider extends ChangeNotifier {
       );
 
       _updateCompletionFields();
-      debugPrint('✅ Nouvelle photo de profil ajoutée (locale)');
+      debugPrint('✅ New profile photo added (local)');
     }
   }
 
-  /// ✅ Supprimer photo de profil
   void removeProfilePhoto() {
     if (_profilePhoto == null) return;
 
-    // Si photo distante, la marquer pour suppression
     if (_profilePhoto!.source == PhotoSource.remote) {
-      _deletedProfilePhotoId = _profilePhoto!.id;
+      _deletedProfilePhotoPath = _profilePhoto!.remotePath;
       debugPrint(
-        '🗑️ Profile photo marquée pour suppression: ${_profilePhoto!.id}',
+        '🗑️ Profile photo marked for deletion: $_deletedProfilePhotoPath',
       );
     }
 
@@ -270,7 +266,6 @@ class ProfileCompletionProvider extends ChangeNotifier {
     _updateCompletionFields();
   }
 
-  /// ✅ Ajouter photos galerie
   Future<void> addGalleryPhotos({required bool fromCamera}) async {
     if (_galleryPhotos.length >= 6) {
       _errorMessage = 'Maximum 6 photos de galerie';
@@ -315,19 +310,17 @@ class ProfileCompletionProvider extends ChangeNotifier {
     }
   }
 
-  /// ✅ Supprimer photo galerie
   Future<void> removeGalleryPhoto(int index) async {
     if (index >= _galleryPhotos.length) return;
 
     final photo = _galleryPhotos[index];
 
-    // ✅ Si photo distante, la marquer pour suppression (pas supprimer tout de suite)
-    if (photo.source == PhotoSource.remote) {
-      _deletedPhotoIds.add(photo.id);
-      debugPrint('🗑️ Photo galerie marquée pour suppression: ${photo.id}');
+    // ✅ Marquer pour suppression (PATH)
+    if (photo.source == PhotoSource.remote && photo.remotePath != null) {
+      _deletedPhotoPaths.add(photo.remotePath!);
+      debugPrint('🗑️ Gallery photo marked for deletion: ${photo.remotePath}');
     }
 
-    // Retirer de la liste
     _galleryPhotos.removeAt(index);
 
     // Réordonner
@@ -338,7 +331,10 @@ class ProfileCompletionProvider extends ChangeNotifier {
     _updateCompletionFields();
   }
 
-  /// ✅ SAUVEGARDE INTELLIGENTE : Upload nouvelles + Supprimer anciennes
+  // ═══════════════════════════════════════════════════════════
+  // ✅ SAUVEGARDE INTELLIGENTE
+  // ═══════════════════════════════════════════════════════════
+
   Future<bool> saveProfile({bool isSkipped = false}) async {
     if (_user == null) return false;
 
@@ -350,98 +346,62 @@ class ProfileCompletionProvider extends ChangeNotifier {
       final userId = _user!.userId;
 
       // ════════════════════════════════════════════════════════
-      // 1. SUPPRIMER LES PHOTOS MARQUÉES POUR SUPPRESSION
+      // 1. SUPPRIMER LES PHOTOS MARQUÉES (STORAGE + DB)
       // ════════════════════════════════════════════════════════
 
-      // Supprimer l'ancienne photo de profil
-      if (_deletedProfilePhotoId != null) {
-        debugPrint('🗑️ Suppression ancienne photo de profil...');
-        await _deletePhotoFromSupabase(_deletedProfilePhotoId!);
-        _deletedProfilePhotoId = null;
+      if (_deletedProfilePhotoPath != null) {
+        debugPrint('🗑️ Deleting old profile photo...');
+        await _deletePhotoFromSupabase(_deletedProfilePhotoPath!);
+        _deletedProfilePhotoPath = null;
       }
 
-      // Supprimer les photos de galerie
-      for (final photoId in _deletedPhotoIds) {
-        debugPrint('🗑️ Suppression photo galerie: $photoId');
-        await _deletePhotoFromSupabase(photoId);
+      for (final path in _deletedPhotoPaths) {
+        debugPrint('🗑️ Deleting gallery photo: $path');
+        await _deletePhotoFromSupabase(path);
       }
-      _deletedPhotoIds.clear();
+      _deletedPhotoPaths.clear();
 
       // ════════════════════════════════════════════════════════
-      // 2. UPLOAD SEULEMENT LES NOUVELLES PHOTOS (LOCAL)
+      // 2. UPLOAD NOUVELLES PHOTOS (LOCALE → STORAGE + DB)
       // ════════════════════════════════════════════════════════
 
       // Photo de profil
       if (_profilePhoto != null && _profilePhoto!.needsUpload) {
         debugPrint('📤 Uploading NEW profile photo...');
-        final url = await _imageService.uploadToStorage(
+        final path = await _imageService.uploadToStorage(
           imageFile: _profilePhoto!.localFile!,
           userId: userId,
           photoType: PhotoType.profile,
         );
 
-        if (url != null) {
-          Future<void> _savePhotoEntity({
-            required String path, // ⚠️ PAS une URL
-            required String type,
-            required int displayOrder,
-            required bool hasWatermark,
-          }) async {
-            final photoId = const Uuid().v4();
-
-            // 1️⃣ INSERT SUPABASE (SOURCE DE VÉRITÉ)
-            await _supabase.from('photos').insert({
-              'id': photoId,
-              'user_id': _user!.userId,
-              'type': type,
-              'remote_path': path,
-              'status': 'pending', // 🔐 en attente de modération
-              'has_watermark': hasWatermark,
-              'display_order': displayOrder,
-              'uploaded_at': DateTime.now().toIso8601String(),
-            });
-
-            // 2️⃣ CACHE LOCAL (ObjectBox)
-            final photoEntity = PhotoEntity(
-              photoId: photoId,
-              userId: _user!.userId,
-              type: type,
-              localPath: '',
-              remotePath: path,
-              status: 'pending',
-              hasWatermark: hasWatermark,
-              uploadedAt: DateTime.now(),
-              displayOrder: displayOrder,
-            );
-
-            await _objectBox.savePhoto(photoEntity);
-
-            debugPrint('✅ Photo enregistrée (Supabase + ObjectBox): $photoId');
-          }
+        if (path != null) {
+          await _savePhotoEntity(
+            path: path, // ✅ PATH stocké
+            type: 'profile',
+            displayOrder: 0,
+            hasWatermark: false,
+          );
         }
-      } else if (_profilePhoto != null) {
-        debugPrint('✅ Profile photo already exists, skip upload');
       }
 
-      // Photos galerie (seulement nouvelles)
+      // Photos galerie
       final newGalleryPhotos = _galleryPhotos
           .where((p) => p.needsUpload)
           .toList();
-
       debugPrint(
         '📤 Uploading ${newGalleryPhotos.length} NEW gallery photos...',
       );
 
       for (var photo in newGalleryPhotos) {
-        final url = await _imageService.uploadToStorage(
+        final path = await _imageService.uploadToStorage(
           imageFile: photo.localFile!,
           userId: userId,
           photoType: PhotoType.gallery,
         );
 
-        if (url != null) {
+        if (path != null) {
           await _savePhotoEntity(
-            url: url,
+            path: path, // ✅ PATH stocké
             type: 'gallery',
             displayOrder: photo.displayOrder,
             hasWatermark: false,
@@ -450,8 +410,9 @@ class ProfileCompletionProvider extends ChangeNotifier {
       }
 
       // ════════════════════════════════════════════════════════
-      // 3. MISE À JOUR DU PROFIL
+      // 3. MISE À JOUR PROFIL
       // ════════════════════════════════════════════════════════
+
       final finalCompletion = completionPercentage;
       final isProfileComplete = !isSkipped && finalCompletion >= 80;
 
@@ -480,9 +441,6 @@ class ProfileCompletionProvider extends ChangeNotifier {
       await _supabase.from('profiles').update(updateData).eq('id', userId);
       debugPrint('✅ Supabase updated');
 
-      // ════════════════════════════════════════════════════════
-      // 4. MISE À JOUR LOCALE
-      // ════════════════════════════════════════════════════════
       _user = _user!
         ..profileCompleted = isProfileComplete
         ..completionPercentage = finalCompletion
@@ -504,47 +462,70 @@ class ProfileCompletionProvider extends ChangeNotifier {
     }
   }
 
-  /// ✅ NOUVEAU : Supprimer une photo de Supabase (Storage + DB)
-  Future<void> _deletePhotoFromSupabase(String photoId) async {
+  // ═══════════════════════════════════════════════════════════
+  // ✅ SUPPRESSION PHOTO (STORAGE + DB + LOCAL)
+  // ═══════════════════════════════════════════════════════════
+
+  Future<void> _deletePhotoFromSupabase(String path) async {
     try {
-      // 1. Récupérer l'URL de la photo depuis la DB
+      // 1. Récupérer l'ID de la photo via son PATH
       final photoData = await _supabase
           .from('photos')
-          .select('remote_path')
-          .eq('id', photoId)
+          .select('id')
+          .eq('remote_path', path)
           .maybeSingle();
 
-      if (photoData != null && photoData['remote_path'] != null) {
-        final url = photoData['remote_path'] as String;
-
-        // 2. Supprimer du Storage
-        final deleted = await _imageService.deleteFromStorage(url: url);
+      if (photoData != null) {
+        // 2. Supprimer du Storage (PATH direct)
+        final deleted = await _imageService.deleteFromStorage(path: path);
         if (deleted) {
-          debugPrint('✅ Photo supprimée du Storage: $photoId');
+          debugPrint('✅ Photo deleted from Storage: $path');
         }
-      }
 
-      // 3. Supprimer de la table photos
-      await _supabase.from('photos').delete().eq('id', photoId);
-      debugPrint('✅ Photo supprimée de la DB: $photoId');
+        // 3. Supprimer de la DB
+        await _supabase.from('photos').delete().eq('id', photoData['id']);
+        debugPrint('✅ Photo deleted from DB: ${photoData['id']}');
+      }
     } catch (e) {
-      debugPrint('❌ Error deleting photo $photoId: $e');
-      // Ne pas bloquer le processus même si la suppression échoue
+      debugPrint('❌ Error deleting photo $path: $e');
     }
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // ✅ INSERT PHOTO (SUPABASE + OBJECTBOX)
+  // ═══════════════════════════════════════════════════════════
+
   Future<void> _savePhotoEntity({
-    required String url,
+    required String path, // ✅ PATH uniquement
     required String type,
     required int displayOrder,
     required bool hasWatermark,
   }) async {
+    final photoId = const Uuid().v4();
+
+    debugPrint('💾 Saving photo entity: type=$type, path=$path');
+
+    // 1️⃣ INSERT SUPABASE (SOURCE DE VÉRITÉ)
+    await _supabase.from('photos').insert({
+      'id': photoId,
+      'user_id': _user!.userId,
+      'type': type,
+      'remote_path': path, // ✅ PATH stocké
+      'status': 'pending', // 🔐 En attente modération
+      'has_watermark': hasWatermark,
+      'display_order': displayOrder,
+      'uploaded_at': DateTime.now().toIso8601String(),
+    });
+
+    debugPrint('✅ Photo inserted in Supabase: $photoId');
+
+    // 2️⃣ CACHE LOCAL (OBJECTBOX)
     final photoEntity = PhotoEntity(
-      photoId: const Uuid().v4(),
+      photoId: photoId,
       userId: _user!.userId,
       type: type,
       localPath: '',
-      remotePath: url,
+      remotePath: path, // ✅ PATH stocké
       status: 'pending',
       hasWatermark: hasWatermark,
       uploadedAt: DateTime.now(),
@@ -552,32 +533,33 @@ class ProfileCompletionProvider extends ChangeNotifier {
     );
 
     await _objectBox.savePhoto(photoEntity);
+    debugPrint('✅ Photo cached in ObjectBox: $photoId');
   }
+
+  // ═══════════════════════════════════════════════════════════
+  // HELPERS
+  // ═══════════════════════════════════════════════════════════
 
   void reset() {
     _profilePhoto = null;
     _galleryPhotos.clear();
-    _deletedPhotoIds.clear();
-    _deletedProfilePhotoId = null;
+    _deletedPhotoPaths.clear();
+    _deletedProfilePhotoPath = null;
     _errorMessage = null;
     safeNotify();
   }
 
-  // ✅ FIX : Appeler notifyListeners(), PAS safeNotify()
   void safeNotify() {
-    // Vérifier si on est dans une phase critique du scheduler
     if (SchedulerBinding.instance.schedulerPhase ==
         SchedulerPhase.persistentCallbacks) {
-      debugPrint('⚠️ safeNotify: deferring notification (build phase)');
-
-      // Différer après le build
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        debugPrint('✅ safeNotify: executing deferred notification');
+        if (!mounted) return;
         notifyListeners();
       });
     } else {
-      debugPrint('✅ safeNotify: notifying immediately');
       notifyListeners();
     }
   }
+
+  bool get mounted => _user != null;
 }

@@ -44,30 +44,34 @@ class _ProfilePageState extends State<ProfilePage> {
 
     try {
       final photos = await objectBox.getUserPhotos(userId);
-      final approved = photos.where((p) => p.status == 'approved').toList();
+
+      // ✅ CRITICAL: Filter ONLY approved photos
+      final approved = photos
+          .where((p) => p.status == 'approved' && p.remotePath != null)
+          .toList();
+
       approved.sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+
+      debugPrint(
+        '📸 Found ${approved.length} approved photos (${photos.length} total)',
+      );
 
       setState(() {
         final supabase = Supabase.instance.client;
 
-        _profilePhotoUrl =
-            approved
-                    .where((p) => p.type == 'profile')
-                    .firstOrNull
-                    ?.remotePath !=
-                null
+        // ✅ Construct URL from PATH
+        final profilePhoto = approved
+            .where((p) => p.type == 'profile')
+            .firstOrNull;
+        _profilePhotoUrl = profilePhoto != null
             ? supabase.storage
                   .from('profiles')
-                  .getPublicUrl(
-                    approved
-                        .where((p) => p.type == 'profile')
-                        .first
-                        .remotePath!,
-                  )
+                  .getPublicUrl(profilePhoto.remotePath!)
             : null;
 
+        // ✅ Construct URLs from PATHs
         _photoUrls = approved
-            .where((p) => p.type == 'gallery' && p.remotePath != null)
+            .where((p) => p.type == 'gallery')
             .map(
               (p) =>
                   supabase.storage.from('profiles').getPublicUrl(p.remotePath!),
