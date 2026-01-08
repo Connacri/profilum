@@ -532,14 +532,21 @@ class ProfileCompletionProvider extends ChangeNotifier {
     safeNotify();
   }
 
+  // ✅ FIX : Appeler notifyListeners(), PAS safeNotify()
   void safeNotify() {
+    // Vérifier si on est dans une phase critique du scheduler
     if (SchedulerBinding.instance.schedulerPhase ==
         SchedulerPhase.persistentCallbacks) {
+      debugPrint('⚠️ safeNotify: deferring notification (build phase)');
+
+      // Différer après le build
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        safeNotify();
+        debugPrint('✅ safeNotify: executing deferred notification');
+        notifyListeners();
       });
     } else {
-      safeNotify();
+      debugPrint('✅ safeNotify: notifying immediately');
+      notifyListeners();
     }
   }
 }
