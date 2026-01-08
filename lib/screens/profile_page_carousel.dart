@@ -1,6 +1,7 @@
 // lib/screens/profile_page_carousel.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/auth_provider.dart';
 import '../services/services.dart';
@@ -47,14 +48,30 @@ class _ProfilePageState extends State<ProfilePage> {
       approved.sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
 
       setState(() {
-        _profilePhotoUrl = approved
-            .where((p) => p.type == 'profile')
-            .firstOrNull
-            ?.remotePath;
+        final supabase = Supabase.instance.client;
+
+        _profilePhotoUrl =
+            approved
+                    .where((p) => p.type == 'profile')
+                    .firstOrNull
+                    ?.remotePath !=
+                null
+            ? supabase.storage
+                  .from('profiles')
+                  .getPublicUrl(
+                    approved
+                        .where((p) => p.type == 'profile')
+                        .first
+                        .remotePath!,
+                  )
+            : null;
 
         _photoUrls = approved
             .where((p) => p.type == 'gallery' && p.remotePath != null)
-            .map((p) => p.remotePath!)
+            .map(
+              (p) =>
+                  supabase.storage.from('profiles').getPublicUrl(p.remotePath!),
+            )
             .toList();
 
         _isLoadingPhotos = false;

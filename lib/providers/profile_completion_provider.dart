@@ -381,12 +381,43 @@ class ProfileCompletionProvider extends ChangeNotifier {
         );
 
         if (url != null) {
-          await _savePhotoEntity(
-            url: url,
-            type: 'profile',
-            displayOrder: 0,
-            hasWatermark: true,
-          );
+          Future<void> _savePhotoEntity({
+            required String path, // ⚠️ PAS une URL
+            required String type,
+            required int displayOrder,
+            required bool hasWatermark,
+          }) async {
+            final photoId = const Uuid().v4();
+
+            // 1️⃣ INSERT SUPABASE (SOURCE DE VÉRITÉ)
+            await _supabase.from('photos').insert({
+              'id': photoId,
+              'user_id': _user!.userId,
+              'type': type,
+              'remote_path': path,
+              'status': 'pending', // 🔐 en attente de modération
+              'has_watermark': hasWatermark,
+              'display_order': displayOrder,
+              'uploaded_at': DateTime.now().toIso8601String(),
+            });
+
+            // 2️⃣ CACHE LOCAL (ObjectBox)
+            final photoEntity = PhotoEntity(
+              photoId: photoId,
+              userId: _user!.userId,
+              type: type,
+              localPath: '',
+              remotePath: path,
+              status: 'pending',
+              hasWatermark: hasWatermark,
+              uploadedAt: DateTime.now(),
+              displayOrder: displayOrder,
+            );
+
+            await _objectBox.savePhoto(photoEntity);
+
+            debugPrint('✅ Photo enregistrée (Supabase + ObjectBox): $photoId');
+          }
         }
       } else if (_profilePhoto != null) {
         debugPrint('✅ Profile photo already exists, skip upload');
