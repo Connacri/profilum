@@ -1,3 +1,4 @@
+// lib/screens/admin_dashboard_fixed.dart - ✅ CORRIGÉ
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -6,7 +7,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/auth_provider.dart';
 import '../responsive_helper.dart';
+import '../services/profile_image_service.dart';
 import '../widgets/account_deletion_dialog.dart';
+import 'moderation_detail_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -35,6 +38,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   bool _hasMorePhotos = true;
   bool _hasMoreUsers = true;
   bool _isLoadingMore = false;
+  String? _profileImageUrl;
+  bool _isLoadingImage = true;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -44,7 +50,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       duration: const Duration(milliseconds: 300),
     );
     _animController.forward();
+
     _loadData();
+    _loadProfileImage();
+  }
+
+  Future<void> _loadProfileImage() async {
+    try {
+      setState(() => _isLoadingImage = true);
+
+      // Charger l'URL de l'image de profil
+      final url = await context
+          .read<ProfileImageService>()
+          .getCurrentUserProfileImage();
+
+      if (!mounted) return;
+
+      setState(() {
+        _profileImageUrl = url;
+        _isLoadingImage = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage = 'Erreur: $e';
+        _isLoadingImage = false;
+      });
+    }
   }
 
   @override
@@ -68,22 +101,41 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           .count();
 
       final totalUsers = await _supabase.from('profiles').select('id').count();
-      final pendingCount = await _supabase
-          .from('photos')
-          .select('id')
-          .eq('status', 'pending')
-          .count();
 
-      // Photos avec pagination
+      // ✅ Compter pending ET rejected
+      final pendingCount = await _supabase.from('photos').select('id').inFilter(
+        'status',
+        ['pending', 'rejected'],
+      ).count();
+
+      // ✅ Charger photos pending ET rejected
       final photos = await _supabase
           .from('photos')
           .select(
             'id, user_id, remote_path, uploaded_at, status, type, profiles!photos_user_id_fkey(full_name, email)',
           )
-          .eq('status', 'pending')
+          .inFilter('status', ['pending', 'rejected'])
           .not('remote_path', 'is', null)
           .order('uploaded_at', ascending: false)
           .range(_photosPage * _pageSize, (_photosPage + 1) * _pageSize - 1);
+
+      if (!mounted) return; // ✅ Vérifier avant d'utiliser context
+
+      // ✅ Construire les URLs et précharger
+      final photosWithUrls = photos.map<Map<String, dynamic>>((p) {
+        final url = _buildPhotoUrl(p['remote_path'] as String);
+        return {...p, 'url': url};
+      }).toList();
+
+      // Précharger les images SEULEMENT si le widget est encore monté
+      for (final photo in photosWithUrls) {
+        if (!mounted) break; // ✅ Vérifier à chaque itération
+
+        precacheImage(
+          CachedNetworkImageProvider(photo['url'] as String),
+          context,
+        );
+      }
 
       _hasMorePhotos = photos.length == _pageSize;
 
@@ -96,7 +148,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
       _hasMoreUsers = users.length == _pageSize;
 
-      if (!mounted) return;
+      if (!mounted) return; // ✅ Vérifier avant setState final
 
       setState(() {
         _stats = {
@@ -105,7 +157,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           'pending_photos': pendingCount.count,
           'revenue': 0,
         };
-        _pendingPhotos = List<Map<String, dynamic>>.from(photos);
+        _pendingPhotos = photosWithUrls;
         _users = List<Map<String, dynamic>>.from(users);
         _isLoading = false;
       });
@@ -130,16 +182,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           .select(
             'id, user_id, remote_path, uploaded_at, status, type, profiles!photos_user_id_fkey(full_name, email)',
           )
-          .eq('status', 'pending')
+          .inFilter('status', ['pending', 'rejected'])
           .not('remote_path', 'is', null)
           .order('uploaded_at', ascending: false)
           .range(_photosPage * _pageSize, (_photosPage + 1) * _pageSize - 1);
+
+      final photosWithUrls = photos.map<Map<String, dynamic>>((p) {
+        final url = _buildPhotoUrl(p['remote_path'] as String);
+        return {...p, 'url': url};
+      }).toList();
 
       _hasMorePhotos = photos.length == _pageSize;
 
       if (mounted) {
         setState(() {
-          _pendingPhotos.addAll(List<Map<String, dynamic>>.from(photos));
+          _pendingPhotos.addAll(photosWithUrls);
           _isLoadingMore = false;
         });
       }
@@ -180,11 +237,32 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
+  /// 🔗 Construire l'URL complète d'une photo (depuis ProfilePage)
+  String _buildPhotoUrl(String path) {
+    // ✅ Valider que le path ne contient pas déjà l'URL complète
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      debugPrint('⚠️ Path already contains full URL: $path');
+      return path;
+    }
+
+    // ✅ Nettoyer le path (enlever les slashes en trop)
+    final cleanPath = path
+        .replaceAll(RegExp(r'^/+'), '')
+        .replaceAll(RegExp(r'/+'), '/');
+
+    // ✅ Construire l'URL publique
+    final url = _supabase.storage.from('profiles').getPublicUrl(cleanPath);
+
+    debugPrint('🔗 Built URL: $url');
+    debugPrint('   From path: $cleanPath');
+
+    return url;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    // 🎯 LayoutBuilder pour adapter l'UI selon la taille
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile =
@@ -192,21 +270,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
         return Scaffold(
           key: _scaffoldKey,
-          // 📱 Drawer sur mobile uniquement
           drawer: isMobile ? _buildDrawer(theme) : null,
           body: Row(
             children: [
-              // 🖥️ Sidebar fixe sur desktop/tablet
               if (!isMobile) _buildSidebar(theme),
-
-              // 📄 Contenu principal
               Expanded(
                 child: Column(
                   children: [
-                    // 📱 AppBar sur mobile pour ouvrir le drawer
                     if (isMobile) _buildMobileAppBar(theme),
-
-                    // Contenu
                     Expanded(
                       child: _isLoading
                           ? const Center(child: CircularProgressIndicator())
@@ -308,8 +379,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               const Divider(color: Colors.white24),
               _buildLogoutButton(theme),
               const Divider(),
-
-              // ❌ SUPPRESSION DÉFINITIVE
               ListTile(
                 leading: const Icon(Icons.delete_forever, color: Colors.red),
                 title: const Text(
@@ -332,8 +401,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   );
 
                   if (confirmed == true && mounted) {
-                    // Redirect automatique vers AuthScreen via AuthProvider
-                    // (le status change à accountDeleted)
+                    // Redirect via AuthProvider
                   }
                 },
               ),
@@ -484,7 +552,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         child: InkWell(
           onTap: () {
             setState(() => _selectedIndex = index);
-            // Fermer le drawer si mobile
             if (context.isMobile) {
               Navigator.of(context).pop();
             }
@@ -674,7 +741,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   Widget _buildStatsGrid(ThemeData theme) {
-    // 🎯 LayoutBuilder pour calculer dynamiquement les colonnes
     return LayoutBuilder(
       builder: (context, constraints) {
         final columns = ResponsiveHelper.getGridColumns(
@@ -708,13 +774,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               color: Colors.green,
               trend: '+8%',
             ),
-            _buildStatCard(
-              theme: theme,
-              icon: Icons.pending_rounded,
-              label: 'En attente',
-              value: _stats['pending_photos']?.toString() ?? '0',
-              color: Colors.orange,
-              trend: '-5%',
+            GestureDetector(
+              onTap: () => _showModerationMenu(context, theme),
+              child: _buildStatCard(
+                theme: theme,
+                icon: Icons.pending_rounded,
+                label: 'En attente/Rejetées',
+                value: _stats['pending_photos']?.toString() ?? '0',
+                color: Colors.orange,
+                trend: '-5%',
+              ),
             ),
             _buildStatCard(
               theme: theme,
@@ -737,8 +806,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     required String value,
     required Color color,
     String? trend,
+    // required String status,
   }) {
-    return Card(
+    return
+    // InkWell(
+    // onTap: () {
+    //   Navigator.push(
+    //     context,
+    //     MaterialPageRoute(
+    //       builder: (_) => ModerationDetailScreen(status: status),
+    //     ),
+    //   );
+    // },
+    // child:
+    Card(
       elevation: context.isMobile ? 1 : 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
@@ -825,7 +906,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ],
         ),
       ),
-    );
+    ); //,
+    // );
   }
 
   Widget _buildRecentActivity(ThemeData theme) {
@@ -871,15 +953,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: CircleAvatar(
-        backgroundColor: theme.colorScheme.primaryContainer,
-        child: Text(
-          (user['full_name'] ?? user['email'])[0].toUpperCase(),
-          style: TextStyle(
-            color: theme.colorScheme.onPrimaryContainer,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+      leading: _buildUserAvatar(
+        userId: user['id'] as String,
+        userName: user['full_name'] ?? user['email'] ?? '',
+        radius: 20,
       ),
       title: Text(user['full_name'] ?? user['email']),
       subtitle: Text(
@@ -892,7 +969,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  /// 🎨 MODÉRATION - UI/UX OPTIMISÉE
+  /// 🎨 MODÉRATION - GRID RESPONSIVE
   Widget _buildModeration(ThemeData theme) {
     return Column(
       children: [
@@ -975,10 +1052,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Widget _buildModerationGrid(ThemeData theme) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 🎨 Calcul dynamique des colonnes selon la largeur disponible
         final columns = ResponsiveHelper.getColumnsFromItemWidth(
           constraints.maxWidth - (context.adaptivePadding.horizontal),
-          targetItemWidth: 280, // Largeur cible d'une carte photo
+          targetItemWidth: 280,
         ).clamp(1, 6);
 
         return CustomScrollView(
@@ -1000,8 +1076,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 }, childCount: _pendingPhotos.length),
               ),
             ),
-
-            // Bouton charger plus
             if (_hasMorePhotos)
               SliverToBoxAdapter(
                 child: Padding(
@@ -1029,10 +1103,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  /// 🖼️ CARTE PHOTO OPTIMISÉE
+  /// 🖼️ CARTE PHOTO OPTIMISÉE (avec CachedNetworkImage)
   Widget _buildPhotoCard(ThemeData theme, Map<String, dynamic> photo) {
-    final remotePath = photo['remote_path'];
-    if (remotePath == null || remotePath.isEmpty) {
+    final photoUrl = photo['url'] as String?;
+    if (photoUrl == null || photoUrl.isEmpty) {
       return _buildErrorCard(theme, 'URL manquante');
     }
 
@@ -1040,6 +1114,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final userName = profiles != null
         ? (profiles['full_name'] ?? profiles['email'] ?? 'Utilisateur inconnu')
         : 'Utilisateur inconnu';
+
+    final status = photo['status'] as String;
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -1051,13 +1127,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 🖼️ Image
+          // 🖼️ Image avec CachedNetworkImage
           Expanded(
             flex: 3,
             child: Hero(
               tag: 'photo_${photo['id']}',
               child: CachedNetworkImage(
-                imageUrl: remotePath,
+                imageUrl: photoUrl,
                 fit: BoxFit.cover,
                 placeholder: (_, __) => Container(
                   color: theme.colorScheme.surfaceVariant,
@@ -1098,93 +1174,119 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
           ),
 
-          // 📝 Infos
+          // 📋 Infos
           Padding(
             padding: EdgeInsets.all(context.isMobile ? 12 : 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 12,
-                      backgroundColor: theme.colorScheme.primaryContainer,
-                      child: Text(
-                        userName[0].toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: theme.colorScheme.onPrimaryContainer,
-                          fontWeight: FontWeight.bold,
-                        ),
+                // 📋 Infos
+                Padding(
+                  padding: EdgeInsets.all(context.isMobile ? 12 : 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _buildUserAvatar(
+                            userId: photo['user_id'] as String,
+                            userName: userName,
+                            radius: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              userName,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        userName,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.access_time,
-                      size: 12,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      DateFormat(
-                        'dd/MM HH:mm',
-                      ).format(DateTime.parse(photo['uploaded_at'])),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
 
-          // 🎯 Boutons d'action
-          Padding(
-            padding: EdgeInsets.all(context.isMobile ? 12 : 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _rejectPhoto(photo),
-                    icon: const Icon(Icons.close, size: 18),
-                    label: Text(context.isMobile ? 'Refuser' : 'Refuser'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      side: const BorderSide(color: Colors.red),
-                      padding: EdgeInsets.symmetric(
-                        vertical: context.isMobile ? 12 : 8,
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.access_time,
+                            size: 12,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            DateFormat(
+                              'dd/MM HH:mm',
+                            ).format(DateTime.parse(photo['uploaded_at'])),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: status == 'pending'
+                                  ? Colors.orange.withOpacity(0.2)
+                                  : Colors.red.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              status.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                                color: status == 'pending'
+                                    ? Colors.orange
+                                    : Colors.red,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => _approvePhoto(photo),
-                    icon: const Icon(Icons.check, size: 18),
-                    label: Text(context.isMobile ? 'Valider' : 'Valider'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: EdgeInsets.symmetric(
-                        vertical: context.isMobile ? 12 : 8,
+
+                // 🎯 Boutons d'action
+                Padding(
+                  padding: EdgeInsets.all(context.isMobile ? 12 : 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _rejectPhoto(photo),
+                          icon: const Icon(Icons.close, size: 18),
+                          label: Text(context.isMobile ? 'Refuser' : 'Refuser'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                            padding: EdgeInsets.symmetric(
+                              vertical: context.isMobile ? 12 : 8,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => _approvePhoto(photo),
+                          icon: const Icon(Icons.check, size: 18),
+                          label: Text(context.isMobile ? 'Valider' : 'Valider'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            padding: EdgeInsets.symmetric(
+                              vertical: context.isMobile ? 12 : 8,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -1204,6 +1306,314 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             Icon(Icons.error_outline, size: 48, color: Colors.orange),
             const SizedBox(height: 8),
             Text(message, style: theme.textTheme.bodySmall),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 👥 GESTION DES UTILISATEURS
+  Widget _buildUsers(ThemeData theme) {
+    final filteredUsers = _users.where((u) {
+      if (_searchQuery.isEmpty) return true;
+      final name = (u['full_name'] ?? '').toLowerCase();
+      final email = (u['email'] ?? '').toLowerCase();
+      return name.contains(_searchQuery.toLowerCase()) ||
+          email.contains(_searchQuery.toLowerCase());
+    }).toList();
+
+    return Column(
+      children: [
+        Container(
+          padding: context.adaptivePadding,
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Gestion des utilisateurs',
+                          style: theme.textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${_users.length} utilisateur${_users.length > 1 ? 's' : ''}',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                decoration: InputDecoration(
+                  hintText: 'Rechercher...',
+                  prefixIcon: const Icon(Icons.search),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onChanged: (value) => setState(() => _searchQuery = value),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Card(
+            margin: EdgeInsets.fromLTRB(
+              context.adaptivePadding.left,
+              0,
+              context.adaptivePadding.right,
+              context.adaptivePadding.bottom,
+            ),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: theme.dividerColor),
+            ),
+            child: ListView.separated(
+              itemCount: filteredUsers.length + (_hasMoreUsers ? 1 : 0),
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                if (index == filteredUsers.length) {
+                  return Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Center(
+                      child: _isLoadingMore
+                          ? const CircularProgressIndicator()
+                          : OutlinedButton.icon(
+                              onPressed: _loadMoreUsers,
+                              icon: const Icon(Icons.expand_more),
+                              label: const Text('Charger plus d\'utilisateurs'),
+                            ),
+                    ),
+                  );
+                }
+
+                return _buildUserItem(theme, filteredUsers[index]);
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUserItem(ThemeData theme, Map<String, dynamic> user) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      leading: _buildUserAvatar(
+        userId: user['id'] as String,
+        userName: user['full_name'] ?? user['email'] ?? '',
+        radius: 20,
+      ),
+
+      title: Text(user['full_name'] ?? user['email']),
+      subtitle: Text(user['email']),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Chip(
+            label: Text(user['role']),
+            backgroundColor: theme.colorScheme.secondaryContainer,
+          ),
+          const SizedBox(width: 8),
+          PopupMenuButton(
+            icon: const Icon(Icons.more_vert),
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'edit',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit),
+                    SizedBox(width: 8),
+                    Text('Modifier'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'suspend',
+                child: Row(
+                  children: [
+                    Icon(Icons.block, color: Colors.orange),
+                    SizedBox(width: 8),
+                    Text('Suspendre'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('Supprimer'),
+                  ],
+                ),
+              ),
+            ],
+            onSelected: (value) => _handleUserAction(value, user),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleUserAction(
+    String action,
+    Map<String, dynamic> user,
+  ) async {
+    switch (action) {
+      case 'delete':
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Confirmer suppression'),
+            content: Text('Supprimer ${user['full_name'] ?? user['email']} ?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Annuler'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('Supprimer'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirmed != true) return;
+
+        try {
+          await _supabase.from('profiles').delete().eq('id', user['id']);
+
+          if (mounted) {
+            setState(() => _users.removeWhere((u) => u['id'] == user['id']));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Utilisateur supprimé'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur suppression: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        break;
+
+      case 'edit':
+        // TODO: Implémenter EditUserPage
+        debugPrint('Edit user: ${user['id']}');
+        break;
+
+      default:
+        debugPrint('Action inconnue: $action');
+    }
+  }
+
+  Widget _buildAnalytics(ThemeData theme) => Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.analytics, size: 80, color: theme.colorScheme.primary),
+        const SizedBox(height: 16),
+        Text('Statistiques avancées', style: theme.textTheme.headlineMedium),
+        const SizedBox(height: 8),
+        Text('À venir...', style: theme.textTheme.bodyLarge),
+      ],
+    ),
+  );
+
+  Widget _buildSettings(ThemeData theme) => Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.settings, size: 80, color: theme.colorScheme.primary),
+        const SizedBox(height: 16),
+        Text('Paramètres', style: theme.textTheme.headlineMedium),
+        const SizedBox(height: 8),
+        Text('À venir...', style: theme.textTheme.bodyLarge),
+      ],
+    ),
+  );
+
+  void _showModerationMenu(BuildContext context, ThemeData theme) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            Text(
+              'Voir les photos',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: Icon(Icons.hourglass_empty, color: Colors.orange),
+              title: const Text('En attente'),
+              subtitle: Text('${_stats['pending_photos'] ?? 0} photos'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        const ModerationDetailScreen(status: 'pending'),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.check_circle, color: Colors.green),
+              title: const Text('Approuvées'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        const ModerationDetailScreen(status: 'approved'),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.cancel, color: Colors.red),
+              title: const Text('Rejetées'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        const ModerationDetailScreen(status: 'rejected'),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
@@ -1333,355 +1743,47 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  /// 👥 GESTION DES UTILISATEURS
-  Widget _buildUsers(ThemeData theme) {
-    final filteredUsers = _users.where((u) {
-      if (_searchQuery.isEmpty) return true;
-      final name = (u['full_name'] ?? '').toLowerCase();
-      final email = (u['email'] ?? '').toLowerCase();
-      return name.contains(_searchQuery.toLowerCase()) ||
-          email.contains(_searchQuery.toLowerCase());
-    }).toList();
+  /// 🖼️ Widget pour afficher l'image de profil d'un utilisateur
+  Widget _buildUserAvatar({
+    required String userId,
+    required String userName,
+    double radius = 20,
+  }) {
+    return FutureBuilder<String?>(
+      future: context.read<ProfileImageService>().getUserProfileImage(userId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return SizedBox(
+            width: radius * 2,
+            height: radius * 2,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          );
+        }
 
-    return Column(
-      children: [
-        Container(
-          padding: context.adaptivePadding,
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Gestion des utilisateurs',
-                          style: theme.textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${_users.length} utilisateur${_users.length > 1 ? 's' : ''}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+        final imageUrl = snapshot.data;
+        if (imageUrl == null || imageUrl.isEmpty) {
+          return CircleAvatar(
+            radius: radius,
+            backgroundColor: Colors.grey[300],
+            child: Text(
+              userName.isNotEmpty ? userName[0].toUpperCase() : '?',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: radius * 0.8,
+                color: Colors.grey[600],
               ),
-              const SizedBox(height: 16),
-              TextField(
-                decoration: InputDecoration(
-                  hintText: 'Rechercher...',
-                  prefixIcon: const Icon(Icons.search),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onChanged: (value) => setState(() => _searchQuery = value),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: Card(
-            margin: EdgeInsets.fromLTRB(
-              context.adaptivePadding.left,
-              0,
-              context.adaptivePadding.right,
-              context.adaptivePadding.bottom,
-            ),
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: theme.dividerColor),
-            ),
-            child: ListView.separated(
-              itemCount: filteredUsers.length + (_hasMoreUsers ? 1 : 0),
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                if (index == filteredUsers.length) {
-                  return Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Center(
-                      child: _isLoadingMore
-                          ? const CircularProgressIndicator()
-                          : OutlinedButton.icon(
-                              onPressed: _loadMoreUsers,
-                              icon: const Icon(Icons.expand_more),
-                              label: const Text('Charger plus d\'utilisateurs'),
-                            ),
-                    ),
-                  );
-                }
-                return _buildUserItem(theme, filteredUsers[index]);
-              },
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildUserItem(ThemeData theme, Map<String, dynamic> user) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-      leading: CircleAvatar(
-        radius: 24,
-        backgroundColor: theme.colorScheme.primaryContainer,
-        child: Text(
-          (user['full_name'] ?? user['email'])[0].toUpperCase(),
-          style: TextStyle(
-            color: theme.colorScheme.onPrimaryContainer,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-      title: Text(user['full_name'] ?? user['email']),
-      subtitle: Text(user['email']),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Chip(
-            label: Text(user['role']),
-            backgroundColor: theme.colorScheme.secondaryContainer,
-          ),
-          const SizedBox(width: 8),
-          PopupMenuButton(
-            icon: const Icon(Icons.more_vert),
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'edit',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit),
-                    SizedBox(width: 8),
-                    Text('Modifier'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'suspend',
-                child: Row(
-                  children: [
-                    Icon(Icons.block, color: Colors.orange),
-                    SizedBox(width: 8),
-                    Text('Suspendre'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('Supprimer'),
-                  ],
-                ),
-              ),
-            ],
-            onSelected: (value) => _handleUserAction(value, user),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _handleUserAction(
-    String action,
-    Map<String, dynamic> user,
-  ) async {
-    final supabase = Supabase.instance.client;
-
-    switch (action) {
-      case 'delete':
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Confirmer suppression'),
-            content: Text('Supprimer ${user['full_name'] ?? user['email']} ?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Annuler'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                style: FilledButton.styleFrom(backgroundColor: Colors.red),
-                child: const Text('Supprimer'),
-              ),
-            ],
-          ),
-        );
-
-        if (confirmed != true) return;
-
-        try {
-          final response = await supabase
-              .from('profiles')
-              .delete()
-              .eq('id', user['id']);
-
-          if (response.error != null) {
-            throw Exception(response.error!.message);
-          }
-
-          if (mounted) {
-            setState(() => _users.removeWhere((u) => u['id'] == user['id']));
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Utilisateur supprimé'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
-        } catch (e) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Erreur suppression: $e'),
-              backgroundColor: Colors.red,
             ),
           );
         }
-        break;
 
-      case 'edit':
-        final updatedUser = await Navigator.push<Map<String, dynamic>>(
-          context,
-          MaterialPageRoute(builder: (_) => EditUserPage(user: user)),
+        return CircleAvatar(
+          radius: radius,
+          backgroundImage: CachedNetworkImageProvider(imageUrl),
+          onBackgroundImageError: (exception, stackTrace) {
+            debugPrint('❌ Failed to load avatar: $imageUrl');
+          },
         );
-        if (updatedUser != null && mounted) {
-          setState(() {
-            final i = _users.indexWhere((u) => u['id'] == updatedUser['id']);
-            if (i != -1) _users[i] = updatedUser;
-          });
-        }
-        break;
-
-      default:
-        debugPrint('Action inconnue: $action');
-    }
-  }
-
-  Widget _buildAnalytics(ThemeData theme) => Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(Icons.analytics, size: 80, color: theme.colorScheme.primary),
-        const SizedBox(height: 16),
-        Text('Statistiques avancées', style: theme.textTheme.headlineMedium),
-        const SizedBox(height: 8),
-        Text('À venir...', style: theme.textTheme.bodyLarge),
-      ],
-    ),
-  );
-
-  Widget _buildSettings(ThemeData theme) => Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(Icons.settings, size: 80, color: theme.colorScheme.primary),
-        const SizedBox(height: 16),
-        Text('Paramètres', style: theme.textTheme.headlineMedium),
-        const SizedBox(height: 8),
-        Text('À venir...', style: theme.textTheme.bodyLarge),
-      ],
-    ),
-  );
-}
-
-class EditUserPage extends StatefulWidget {
-  final Map<String, dynamic> user;
-  const EditUserPage({super.key, required this.user});
-
-  @override
-  State<EditUserPage> createState() => _EditUserPageState();
-}
-
-class _EditUserPageState extends State<EditUserPage> {
-  late TextEditingController _fullNameController;
-  late TextEditingController _emailController;
-  bool _loading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _fullNameController = TextEditingController(text: widget.user['full_name']);
-    _emailController = TextEditingController(text: widget.user['email']);
-  }
-
-  @override
-  void dispose() {
-    _fullNameController.dispose();
-    _emailController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    setState(() => _loading = true);
-
-    try {
-      final response = await Supabase.instance.client
-          .from('profiles')
-          .update({
-            'full_name': _fullNameController.text.trim(),
-            'email': _emailController.text.trim(),
-          })
-          .eq('id', widget.user['id']);
-
-      if (response.error != null) {
-        throw Exception(response.error!.message);
-      }
-
-      Navigator.pop(context, {
-        'id': widget.user['id'],
-        'full_name': _fullNameController.text.trim(),
-        'email': _emailController.text.trim(),
-      });
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur mise à jour: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Éditer utilisateur')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _fullNameController,
-              decoration: const InputDecoration(labelText: 'Nom complet'),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _emailController,
-              decoration: const InputDecoration(labelText: 'Email'),
-            ),
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: _loading ? null : _save,
-              child: _loading
-                  ? const CircularProgressIndicator()
-                  : const Text('Enregistrer'),
-            ),
-          ],
-        ),
-      ),
+      },
     );
   }
 }

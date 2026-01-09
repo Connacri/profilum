@@ -77,6 +77,107 @@ class _AuthScreenAdvancedState extends State<AuthScreenAdvanced>
     });
   }
 
+  // Future<void> _submit() async {
+  //   setState(() {
+  //     _hasAttemptedSubmit = true;
+  //     _passwordFieldError = null;
+  //   });
+  //
+  //   if (!_formKey.currentState!.validate()) return;
+  //
+  //   final rateLimiter = context.read<AuthRateLimiter>();
+  //
+  //   // Vérifier si bloqué
+  //   if (!rateLimiter.canAttemptLogin()) {
+  //     _showSnackbar(rateLimiter.blockMessage, isError: true);
+  //     return;
+  //   }
+  //
+  //   setState(() => _isLoading = true);
+  //
+  //   final authProvider = context.read<AuthProvider>();
+  //   bool success;
+  //
+  //   if (_isSignUp) {
+  //     success = await authProvider.signUp(
+  //       email: _emailController.text.trim(),
+  //       password: _passwordController.text,
+  //       fullName: _nameController.text.trim().isEmpty
+  //           ? null
+  //           : _nameController.text.trim(),
+  //     );
+  //
+  //     if (mounted && !success) {
+  //       // Vérifier si l'email existe déjà (code déjà géré dans auth_provider)
+  //       final error = authProvider.errorMessage;
+  //       if (error != null && error.contains('déjà utilisé')) {
+  //         _showAutoSwitchDialog(
+  //           title: 'Email déjà enregistré',
+  //           message: 'Cet email est déjà utilisé. Voulez-vous vous connecter ?',
+  //           onConfirm: () {
+  //             setState(() {
+  //               _isSignUp = false;
+  //               _confirmPasswordController.clear();
+  //             });
+  //           },
+  //         );
+  //       } else {
+  //         _showSnackbar(
+  //           error ?? 'Erreur lors de l\'inscription',
+  //           isError: true,
+  //         );
+  //       }
+  //     }
+  //   } else {
+  //     success = await authProvider.signIn(
+  //       email: _emailController.text.trim(),
+  //       password: _passwordController.text,
+  //     );
+  //
+  //     if (mounted && !success) {
+  //       final error = authProvider.errorMessage;
+  //
+  //       // 🔍 Détection email inexistant
+  //       if (error == 'email_not_found') {
+  //         _showAutoSwitchDialog(
+  //           title: 'Email non trouvé',
+  //           message:
+  //               'Cet email n\'est pas enregistré. Voulez-vous créer un compte ?',
+  //           onConfirm: () {
+  //             setState(() {
+  //               _isSignUp = true;
+  //             });
+  //           },
+  //         );
+  //       }
+  //       // ❌ Password incorrect → rate limiter
+  //       else if (error != null && _isPasswordError(error)) {
+  //         await rateLimiter.recordFailedAttempt(_emailController.text.trim());
+  //
+  //         setState(() {
+  //           _passwordFieldError = 'Mot de passe incorrect';
+  //         });
+  //
+  //         final remaining = rateLimiter.remainingAttempts;
+  //         if (remaining > 0) {
+  //           _showSnackbar(
+  //             'Mot de passe incorrect. $remaining tentative${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''}.',
+  //             isError: true,
+  //           );
+  //         }
+  //       } else {
+  //         _showSnackbar(error ?? 'Erreur de connexion', isError: true);
+  //       }
+  //     } else if (success) {
+  //       // ✅ Succès → reset rate limiter
+  //       await rateLimiter.recordSuccess();
+  //     }
+  //   }
+  //
+  //   if (mounted) {
+  //     setState(() => _isLoading = false);
+  //   }
+  // }
   Future<void> _submit() async {
     setState(() {
       _hasAttemptedSubmit = true;
@@ -137,31 +238,23 @@ class _AuthScreenAdvancedState extends State<AuthScreenAdvanced>
       if (mounted && !success) {
         final error = authProvider.errorMessage;
 
-        // 🔍 Détection email inexistant
-        if (error == 'email_not_found') {
-          _showAutoSwitchDialog(
-            title: 'Email non trouvé',
-            message:
-                'Cet email n\'est pas enregistré. Voulez-vous créer un compte ?',
-            onConfirm: () {
-              setState(() {
-                _isSignUp = true;
-              });
-            },
-          );
-        }
-        // ❌ Password incorrect → rate limiter
-        else if (error != null && _isPasswordError(error)) {
+        // ❌ SUPPRIMEZ CE BLOC (inutile) :
+        // if (error == 'email_not_found') { ... }
+
+        // ❌ Invalid login → rate limiter
+        if (error != null && _isInvalidLoginError(error)) {
+          // Renommé de _isPasswordError
           await rateLimiter.recordFailedAttempt(_emailController.text.trim());
 
           setState(() {
-            _passwordFieldError = 'Mot de passe incorrect';
+            _passwordFieldError =
+                'Email ou mot de passe invalide'; // Message générique
           });
 
           final remaining = rateLimiter.remainingAttempts;
           if (remaining > 0) {
             _showSnackbar(
-              'Mot de passe incorrect. $remaining tentative${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''}.',
+              'Email ou mot de passe invalide. $remaining tentative${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''}.',
               isError: true,
             );
           }
@@ -628,6 +721,14 @@ class _AuthScreenAdvancedState extends State<AuthScreenAdvanced>
         ),
       ),
     );
+  }
+
+  bool _isInvalidLoginError(String error) {
+    // Renommé de _isPasswordError
+    final lowerError = error.toLowerCase();
+    return lowerError.contains('invalid') ||
+        lowerError.contains('invalide') ||
+        lowerError.contains('incorrect');
   }
 }
 

@@ -1,4 +1,4 @@
-// lib/screens/profile_page_carousel.dart
+// lib/screens/profile_page_carousel.dart - ✅ CORRIGÉ
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -8,8 +8,22 @@ import '../services/services.dart';
 import '../widgets/account_deletion_dialog.dart';
 import 'profile_completion_screen.dart';
 
+/// 📸 Modèle de photo avec métadonnées
+class PhotoDisplay {
+  final String url;
+  final String type; // 'profile' | 'gallery'
+  final String status; // 'approved' | 'pending'
+  final bool isPending;
+
+  PhotoDisplay({required this.url, required this.type, required this.status})
+    : isPending = status == 'pending';
+}
+
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+  final String?
+  viewingUserId; // ✅ NOUVEAU : ID du user qu'on consulte (null = soi-même)
+
+  const ProfilePage({super.key, this.viewingUserId});
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -19,9 +33,11 @@ class _ProfilePageState extends State<ProfilePage> {
   final PageController _carouselController = PageController();
   int _currentPhotoIndex = 0;
 
-  List<String> _photoUrls = [];
-  String? _profilePhotoUrl;
+  List<PhotoDisplay> _galleryPhotos = [];
+  PhotoDisplay? _profilePhoto;
   bool _isLoadingPhotos = true;
+  bool _isOwnProfile = false;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -35,57 +51,141 @@ class _ProfilePageState extends State<ProfilePage> {
     super.dispose();
   }
 
+  /// 🔍 CHARGEMENT INTELLIGENT DES PHOTOS
   Future<void> _loadPhotos() async {
-    final authProvider = context.read<AuthProvider>();
-    final objectBox = context.read<ObjectBoxService>();
-    final userId = authProvider.currentUser?.userId;
-
-    if (userId == null) return;
+    setState(() {
+      _isLoadingPhotos = true;
+      _errorMessage = null;
+    });
 
     try {
-      final photos = await objectBox.getUserPhotos(userId);
+      final authProvider = context.read<AuthProvider>();
+      final objectBox = context.read<ObjectBoxService>();
+      final supabase = Supabase.instance.client;
 
-      // ✅ CRITICAL: Filter ONLY approved photos
-      final approved = photos
-          .where((p) => p.status == 'approved' && p.remotePath != null)
-          .toList();
+      final currentUserId = authProvider.currentUser?.userId;
+      final targetUserId = widget.viewingUserId ?? currentUserId;
+      final currentUserRole = authProvider.currentUser?.role;
 
-      approved.sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+      if (currentUserId == null || targetUserId == null) {
+        throw Exception('User ID manquant');
+      }
 
-      debugPrint(
-        '📸 Found ${approved.length} approved photos (${photos.length} total)',
-      );
+      // ✅ Détecter si c'est son propre profil
+      _isOwnProfile = currentUserId == targetUserId;
 
-      setState(() {
-        final supabase = Supabase.instance.client;
+      debugPrint('════════════════════════════════════════');
+      debugPrint('📸 LOADING PHOTOS');
+      debugPrint('   Current User: $currentUserId');
+      debugPrint('   Target User: $targetUserId');
+      debugPrint('   Is Own Profile: $_isOwnProfile');
+      debugPrint('   Role: $currentUserRole');
+      debugPrint('════════════════════════════════════════');
 
-        // ✅ Construct URL from PATH
-        final profilePhoto = approved
-            .where((p) => p.type == 'profile')
-            .firstOrNull;
-        _profilePhotoUrl = profilePhoto != null
-            ? supabase.storage
-                  .from('profiles')
-                  .getPublicUrl(profilePhoto.remotePath!)
-            : null;
+      // 📦 Charger depuis ObjectBox
+      final photos = await objectBox.getUserPhotos(targetUserId);
 
-        // ✅ Construct URLs from PATHs
-        _photoUrls = approved
-            .where((p) => p.type == 'gallery')
-            .map(
+      debugPrint('📦 ObjectBox returned ${photos.length} photos');
+
+      // 🎯 Filtrage intelligent selon le contexte
+      List<dynamic> filteredPhotos;
+
+      if (_isOwnProfile) {
+        // 👤 Propriétaire : voir approved + pending
+        filteredPhotos = photos
+            .where(
               (p) =>
-                  supabase.storage.from('profiles').getPublicUrl(p.remotePath!),
+                  p.remotePath != null &&
+                  (p.status == 'approved' || p.status == 'pending'),
             )
             .toList();
+        debugPrint(
+          '✅ Owner view: ${filteredPhotos.length} photos (approved + pending)',
+        );
+      } else if (currentUserRole == 'admin' || currentUserRole == 'moderator') {
+        // 👮 Admin/Moderator : voir tout
+        filteredPhotos = photos.where((p) => p.remotePath != null).toList();
+        debugPrint('✅ Admin/Mod view: ${filteredPhotos.length} photos (all)');
+      } else {
+        // 👥 Autre user : seulement approved
+        filteredPhotos = photos
+            .where((p) => p.remotePath != null && p.status == 'approved')
+            .toList();
+        debugPrint(
+          '✅ Public view: ${filteredPhotos.length} photos (approved only)',
+        );
+      }
 
+      // 📐 Trier par display_order
+      filteredPhotos.sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+
+      // 🖼️ Construire les URLs
+      final profilePhotoEntity = filteredPhotos
+          .where((p) => p.type == 'profile')
+          .cast<dynamic>()
+          .firstOrNull;
+
+      if (profilePhotoEntity != null) {
+        final url = _buildPhotoUrl(supabase, profilePhotoEntity.remotePath!);
+        _profilePhoto = PhotoDisplay(
+          url: url,
+          type: 'profile',
+          status: profilePhotoEntity.status ?? 'approved',
+        );
+        debugPrint('📷 Profile photo: $url (status: ${_profilePhoto!.status})');
+      }
+
+      _galleryPhotos = filteredPhotos
+          .where((p) => p.type == 'gallery')
+          .map(
+            (p) => PhotoDisplay(
+              url: _buildPhotoUrl(supabase, p.remotePath!),
+              type: 'gallery',
+              status: p.status ?? 'approved',
+            ),
+          )
+          .toList();
+
+      debugPrint('🖼️ Gallery photos: ${_galleryPhotos.length}');
+      for (var i = 0; i < _galleryPhotos.length; i++) {
+        debugPrint(
+          '   [$i] ${_galleryPhotos[i].status} - ${_galleryPhotos[i].url}',
+        );
+      }
+
+      setState(() => _isLoadingPhotos = false);
+      debugPrint('✅ Photos loaded successfully');
+      debugPrint('════════════════════════════════════════');
+    } catch (e, stack) {
+      debugPrint('❌ Load photos error: $e');
+      debugPrint('Stack: $stack');
+      setState(() {
+        _errorMessage = 'Erreur de chargement des photos: $e';
         _isLoadingPhotos = false;
       });
-
-      debugPrint('✅ Profile loaded: ${_photoUrls.length} gallery photos');
-    } catch (e) {
-      debugPrint('❌ Load photos error: $e');
-      setState(() => _isLoadingPhotos = false);
     }
+  }
+
+  /// 🔗 Construire l'URL complète d'une photo
+  String _buildPhotoUrl(SupabaseClient supabase, String path) {
+    // ✅ Valider que le path ne contient pas déjà l'URL complète
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      debugPrint('⚠️ Path already contains full URL: $path');
+      return path;
+    }
+
+    // ✅ Nettoyer le path (enlever les slashes en trop)
+    final cleanPath = path
+        .replaceAll(RegExp(r'^/+'), '')
+        .replaceAll(RegExp(r'/+'), '/');
+
+    // ✅ Construire l'URL publique
+    final url = supabase.storage.from('profiles').getPublicUrl(cleanPath);
+
+    debugPrint('🔗 Built URL: $url');
+    debugPrint('   From path: $cleanPath');
+
+    return url;
   }
 
   @override
@@ -100,26 +200,57 @@ class _ProfilePageState extends State<ProfilePage> {
       );
     }
 
-    final hasPhotos = _photoUrls.isNotEmpty; // ✅ FIX: Déclarer ici
+    if (_isLoadingPhotos) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (_errorMessage != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Erreur')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 64, color: Colors.red),
+                const SizedBox(height: 16),
+                Text(
+                  _errorMessage!,
+                  style: theme.textTheme.bodyLarge,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: _loadPhotos,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Réessayer'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final hasPhotos = _galleryPhotos.isNotEmpty;
 
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          // Carousel Header
+          // 🎨 Carousel Header
           SliverAppBar(
             expandedHeight: 300,
             pinned: true,
             automaticallyImplyLeading: false,
             flexibleSpace: FlexibleSpaceBar(
-              background: _isLoadingPhotos
-                  ? const Center(child: CircularProgressIndicator())
-                  : hasPhotos
+              background: hasPhotos
                   ? _buildPhotoCarousel()
                   : _buildNoPhotosPlaceholder(theme),
             ),
           ),
 
-          // Content
+          // 📝 Content
           SliverToBoxAdapter(
             child: Column(
               children: [
@@ -128,7 +259,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   offset: const Offset(0, 20),
                   child: Column(
                     children: [
-                      // ✅ Avatar
+                      // ✅ Avatar avec opacité si pending
                       Container(
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
@@ -144,20 +275,77 @@ class _ProfilePageState extends State<ProfilePage> {
                             ),
                           ],
                         ),
-                        child: CircleAvatar(
-                          radius: 60,
-                          backgroundImage: _profilePhotoUrl != null
-                              ? NetworkImage(_profilePhotoUrl!)
-                              : null,
-                          child: _profilePhotoUrl == null
-                              ? const Icon(Icons.person, size: 60)
-                              : null,
+                        child: Stack(
+                          children: [
+                            Opacity(
+                              opacity: _profilePhoto?.isPending == true
+                                  ? 0.5
+                                  : 1.0,
+                              child: CircleAvatar(
+                                radius: 60,
+                                backgroundImage: _profilePhoto != null
+                                    ? NetworkImage(_profilePhoto!.url)
+                                    : null,
+                                child: _profilePhoto == null
+                                    ? const Icon(Icons.person, size: 60)
+                                    : null,
+                              ),
+                            ),
+
+                            // 🏷️ Badge "EN MODÉRATION" si pending
+                            if (_profilePhoto?.isPending == true &&
+                                _isOwnProfile)
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.orange.shade600,
+                                        Colors.orange.shade400,
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(12),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.orange.withOpacity(0.4),
+                                        blurRadius: 6,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Icon(
+                                        Icons.hourglass_empty,
+                                        color: Colors.white,
+                                        size: 12,
+                                      ),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        'MODÉRATION',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
 
                       const SizedBox(height: 16),
 
-                      // ✅ Nom
+                      // Nom
                       Text(
                         user.fullName ?? 'Utilisateur',
                         style: theme.textTheme.headlineSmall?.copyWith(
@@ -167,7 +355,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
                       const SizedBox(height: 4),
 
-                      // ✅ Location
+                      // Location
                       if (user.city != null || user.country != null)
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -192,8 +380,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
                       const SizedBox(height: 8),
 
-                      // ✅ Badge completion
-                      if (!user.profileCompleted)
+                      // Badge completion
+                      if (!user.profileCompleted && _isOwnProfile)
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 16,
@@ -228,7 +416,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
 
-                // ✅ Miniatures photos (UNE SEULE FOIS)
+                // Miniatures photos
                 if (hasPhotos)
                   Padding(
                     padding: const EdgeInsets.symmetric(
@@ -239,7 +427,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Photos (${_photoUrls.length})', // ✅ FIX
+                          'Photos (${_galleryPhotos.length})',
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
@@ -249,8 +437,10 @@ class _ProfilePageState extends State<ProfilePage> {
                           height: 80,
                           child: ListView.builder(
                             scrollDirection: Axis.horizontal,
-                            itemCount: _photoUrls.length, // ✅ FIX
+                            itemCount: _galleryPhotos.length,
                             itemBuilder: (context, index) {
+                              final photo = _galleryPhotos[index];
+
                               return GestureDetector(
                                 onTap: () {
                                   setState(() => _currentPhotoIndex = index);
@@ -260,32 +450,69 @@ class _ProfilePageState extends State<ProfilePage> {
                                     curve: Curves.easeInOut,
                                   );
                                 },
-                                child: Container(
-                                  margin: const EdgeInsets.only(right: 8),
-                                  width: 80,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: _currentPhotoIndex == index
-                                          ? theme.colorScheme.primary
-                                          : Colors.transparent,
-                                      width: 3,
-                                    ),
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(6),
-                                    child: Image.network(
-                                      _photoUrls[index], // ✅ FIX
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => Container(
-                                        color: Colors.grey[300],
-                                        child: const Icon(
-                                          Icons.broken_image,
-                                          color: Colors.grey,
+                                child: Stack(
+                                  children: [
+                                    Container(
+                                      margin: const EdgeInsets.only(right: 8),
+                                      width: 80,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: _currentPhotoIndex == index
+                                              ? theme.colorScheme.primary
+                                              : Colors.transparent,
+                                          width: 3,
+                                        ),
+                                      ),
+                                      child: Opacity(
+                                        opacity: photo.isPending ? 0.5 : 1.0,
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                          child: Image.network(
+                                            photo.url,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) =>
+                                                Container(
+                                                  color: Colors.grey[300],
+                                                  child: const Icon(
+                                                    Icons.broken_image,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
+
+                                    // Badge "EN MODÉRATION"
+                                    if (photo.isPending && _isOwnProfile)
+                                      Positioned(
+                                        top: 4,
+                                        left: 4,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.orange,
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                          child: const Text(
+                                            'MOD',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 8,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               );
                             },
@@ -326,7 +553,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           _StatItem(
                             icon: Icons.photo,
                             label: 'Photos',
-                            value: '${_photoUrls.length}', // ✅ FIX
+                            value: '${_galleryPhotos.length}',
                           ),
                           const _StatItem(
                             icon: Icons.favorite,
@@ -382,7 +609,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 16),
 
                 // Action Button
-                if (!user.profileCompleted)
+                if (!user.profileCompleted && _isOwnProfile)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24),
                     child: FilledButton.icon(
@@ -405,101 +632,109 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ),
 
-                const SizedBox(height: 16),
+                if (_isOwnProfile) ...[
+                  const SizedBox(height: 16),
 
-                // Menu
-                ListTile(
-                  leading: const Icon(Icons.edit),
-                  title: const Text('Modifier le profil'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ProfileCompletionScreen(),
+                  // Menu
+                  ListTile(
+                    leading: const Icon(Icons.edit),
+                    title: const Text('Modifier le profil'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ProfileCompletionScreen(),
+                      ),
                     ),
                   ),
-                ),
 
-                ListTile(
-                  leading: const Icon(Icons.settings),
-                  title: const Text('Paramètres'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {},
-                ),
-
-                const SizedBox(height: 16),
-
-                // Logout
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 5,
+                  ListTile(
+                    leading: const Icon(Icons.settings),
+                    title: const Text('Paramètres'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {},
                   ),
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
+
+                  const SizedBox(height: 16),
+
+                  // Logout
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 5,
+                    ),
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Déconnexion'),
+                            content: const Text(
+                              'Voulez-vous vraiment vous déconnecter ?',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text('Annuler'),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                child: const Text('Déconnexion'),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (confirmed == true && context.mounted) {
+                          await context.read<AuthProvider>().signOut();
+                        }
+                      },
+                      icon: const Icon(Icons.logout),
+                      label: const Text('Déconnexion'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                      ),
+                    ),
+                  ),
+
+                  const Divider(),
+
+                  // Suppression compte
+                  ListTile(
+                    leading: const Icon(
+                      Icons.delete_forever,
+                      color: Colors.red,
+                    ),
+                    title: const Text(
+                      'Supprimer mon compte',
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Action irréversible',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    trailing: const Icon(
+                      Icons.chevron_right,
+                      color: Colors.red,
+                    ),
+                    onTap: () async {
                       final confirmed = await showDialog<bool>(
                         context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Déconnexion'),
-                          content: const Text(
-                            'Voulez-vous vraiment vous déconnecter ?',
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx, false),
-                              child: const Text('Annuler'),
-                            ),
-                            FilledButton(
-                              onPressed: () => Navigator.pop(ctx, true),
-                              child: const Text('Déconnexion'),
-                            ),
-                          ],
-                        ),
+                        barrierDismissible: false,
+                        builder: (_) => const AccountDeletionDialog(),
                       );
 
-                      if (confirmed == true && context.mounted) {
-                        await context.read<AuthProvider>().signOut();
+                      if (confirmed == true && mounted) {
+                        // Redirect auto via AuthProvider
                       }
                     },
-                    icon: const Icon(Icons.logout),
-                    label: const Text('Déconnexion'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      side: const BorderSide(color: Colors.red),
-                    ),
                   ),
-                ),
+                ],
 
-                const Divider(),
-
-                // ❌ SUPPRESSION DÉFINITIVE
-                ListTile(
-                  leading: const Icon(Icons.delete_forever, color: Colors.red),
-                  title: const Text(
-                    'Supprimer mon compte',
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  subtitle: const Text(
-                    'Action irréversible',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  trailing: const Icon(Icons.chevron_right, color: Colors.red),
-                  onTap: () async {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      barrierDismissible: false,
-                      builder: (_) => const AccountDeletionDialog(),
-                    );
-
-                    if (confirmed == true && mounted) {
-                      // Redirect automatique vers AuthScreen via AuthProvider
-                      // (le status change à accountDeleted)
-                    }
-                  },
-                ),
                 const SizedBox(height: 32),
 
                 // Version
@@ -521,7 +756,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  // ✅ CAROUSEL COMPLET avec gradient + dots + arrows
+  /// 🎨 Carousel avec opacité pour photos "pending"
   Widget _buildPhotoCarousel() {
     return Stack(
       children: [
@@ -531,19 +766,77 @@ class _ProfilePageState extends State<ProfilePage> {
           onPageChanged: (index) {
             setState(() => _currentPhotoIndex = index);
           },
-          itemCount: _photoUrls.length,
+          itemCount: _galleryPhotos.length,
           itemBuilder: (context, index) {
-            return Image.network(
-              _photoUrls[index],
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                color: Colors.grey[300],
-                child: const Icon(
-                  Icons.broken_image,
-                  size: 80,
-                  color: Colors.grey,
+            final photo = _galleryPhotos[index];
+
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                // Image avec opacité si pending
+                Opacity(
+                  opacity: photo.isPending ? 0.5 : 1.0,
+                  child: Image.network(
+                    photo.url,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: Colors.grey[300],
+                      child: const Icon(
+                        Icons.broken_image,
+                        size: 80,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+
+                // Badge "EN MODÉRATION" si pending
+                if (photo.isPending && _isOwnProfile)
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.orange.shade600,
+                            Colors.orange.shade400,
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.orange.withOpacity(0.4),
+                            blurRadius: 8,
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(
+                            Icons.hourglass_empty,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'EN MODÉRATION',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
             );
           },
         ),
@@ -566,7 +859,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
 
         // Dots indicator
-        if (_photoUrls.length > 1)
+        if (_galleryPhotos.length > 1)
           Positioned(
             bottom: 16,
             left: 0,
@@ -574,7 +867,7 @@ class _ProfilePageState extends State<ProfilePage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(
-                _photoUrls.length,
+                _galleryPhotos.length,
                 (index) => Container(
                   margin: const EdgeInsets.symmetric(horizontal: 4),
                   width: 8,
@@ -591,7 +884,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
 
         // Navigation arrows
-        if (_photoUrls.length > 1) ...[
+        if (_galleryPhotos.length > 1) ...[
           Positioned(
             left: 8,
             top: 0,
@@ -626,7 +919,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   size: 32,
                 ),
                 onPressed: () {
-                  if (_currentPhotoIndex < _photoUrls.length - 1) {
+                  if (_currentPhotoIndex < _galleryPhotos.length - 1) {
                     _carouselController.nextPage(
                       duration: const Duration(milliseconds: 300),
                       curve: Curves.easeInOut,

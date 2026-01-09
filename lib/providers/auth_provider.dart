@@ -70,6 +70,96 @@ class AuthProvider extends ChangeNotifier {
   // 🔧 SIGNUP AMÉLIORÉ
   // ════════════════════════════════════════════════════════════════
 
+  // Future<bool> signUp({
+  //   required String email,
+  //   required String password,
+  //   String? fullName,
+  // }) async {
+  //   debugPrint('════════════════════════════════════════');
+  //   debugPrint('🔵 SIGNUP START: $email');
+  //   debugPrint('════════════════════════════════════════');
+  //
+  //   _status = AuthStatus.loading;
+  //   _errorMessage = null;
+  //   notifyListeners();
+  //
+  //   try {
+  //     // ✅ ÉTAPE 1 : Tenter la création dans Supabase Auth
+  //     debugPrint('🔵 Step 1: Creating account in Supabase Auth...');
+  //
+  //     final response = await _supabase.auth.signUp(
+  //       email: email,
+  //       password: password,
+  //       data: {'full_name': fullName},
+  //       emailRedirectTo: 'io.supabase.profilum://email-verification',
+  //     );
+  //
+  //     if (response.user == null) {
+  //       throw Exception('Aucun utilisateur retourné par Supabase');
+  //     }
+  //
+  //     final user = response.user!;
+  //     debugPrint('✅ User created in Auth: ${user.id}');
+  //     debugPrint('   Email: ${user.email}');
+  //     debugPrint('   Confirmed: ${user.emailConfirmedAt != null}');
+  //
+  //     // ✅ ÉTAPE 2 : Créer le profil MANUELLEMENT dans la table profiles
+  //     debugPrint('🔵 Step 2: Creating profile in database...');
+  //     await _createUserProfile(
+  //       userId: user.id,
+  //       email: user.email!,
+  //       fullName: fullName,
+  //     );
+  //
+  //     // ✅ ÉTAPE 3 : Charger le profil créé
+  //     debugPrint('🔵 Step 3: Loading created profile...');
+  //     await _loadUserFromSupabase(user.id);
+  //
+  //     // ✅ ÉTAPE 4 : Déterminer le statut final
+  //     _status = user.emailConfirmedAt == null
+  //         ? AuthStatus.emailVerificationPending
+  //         : AuthStatus.profileIncomplete;
+  //
+  //     debugPrint('✅ SIGNUP SUCCESS');
+  //     debugPrint('   Status: $_status');
+  //     debugPrint('   User ID: ${user.id}');
+  //     debugPrint('════════════════════════════════════════');
+  //
+  //     notifyListeners();
+  //     return true;
+  //   } on AuthException catch (e) {
+  //     debugPrint('❌ AUTH EXCEPTION during signup');
+  //     debugPrint('   Status Code: ${e.statusCode}');
+  //     debugPrint('   Message: ${e.message}');
+  //
+  //     // ✅ GESTION SPÉCIALE : Email déjà existant
+  //     if (e.statusCode == '422' && _isEmailAlreadyRegistered(e.message)) {
+  //       debugPrint('⚠️ Email already registered, converting to signIn');
+  //       _errorMessage = 'Cet email existe déjà. Connexion en cours...';
+  //       notifyListeners();
+  //
+  //       // Attendre un peu pour que l'utilisateur voie le message
+  //       await Future.delayed(const Duration(milliseconds: 500));
+  //
+  //       // Convertir en signIn
+  //       return await signIn(email: email, password: password);
+  //     }
+  //
+  //     // Autres erreurs Auth
+  //     _errorMessage = _handleAuthError(e);
+  //     _status = AuthStatus.error;
+  //     notifyListeners();
+  //     return false;
+  //   } catch (e, stack) {
+  //     debugPrint('❌ UNEXPECTED ERROR during signup: $e');
+  //     debugPrint('Stack trace: $stack');
+  //
+  //     _errorMessage = 'Erreur inattendue: $e';
+  //     _status = AuthStatus.error;
+  //     notifyListeners();
+  //     return false;
+  //   }
+  // }
   Future<bool> signUp({
     required String email,
     required String password,
@@ -160,7 +250,6 @@ class AuthProvider extends ChangeNotifier {
       return false;
     }
   }
-
   // ════════════════════════════════════════════════════════════════
   // 🆕 CRÉATION MANUELLE DU PROFIL (côté client)
   // ════════════════════════════════════════════════════════════════
@@ -208,12 +297,18 @@ class AuthProvider extends ChangeNotifier {
   // 🔍 HELPER : Détecter si l'email est déjà enregistré
   // ════════════════════════════════════════════════════════════════
 
-  bool _isEmailAlreadyRegistered(String errorMessage) {
-    final msg = errorMessage.toLowerCase();
-    return msg.contains('already') &&
-        (msg.contains('registered') ||
-            msg.contains('exists') ||
-            msg.contains('been registered'));
+  // bool _isEmailAlreadyRegistered(String errorMessage) {
+  //   final msg = errorMessage.toLowerCase();
+  //   return msg.contains('already') &&
+  //       (msg.contains('registered') ||
+  //           msg.contains('exists') ||
+  //           msg.contains('been registered'));
+  // }
+  bool _isEmailAlreadyRegistered(String message) {
+    final lowerMessage = message.toLowerCase();
+    return lowerMessage.contains('user already registered') ||
+        lowerMessage.contains('already in use') ||
+        lowerMessage.contains('déjà utilisé');
   }
 
   /// 🔍 NOUVEAU : Détecter si l'email n'existe pas dans Supabase
@@ -231,6 +326,77 @@ class AuthProvider extends ChangeNotifier {
   // 2️⃣ MODIFIER LA MÉTHODE signIn() - AJOUTER CE BLOC DANS LE CATCH
   // ────────────────────────────────────────────────────────────────
 
+  // Future<bool> signIn({required String email, required String password}) async {
+  //   debugPrint('════════════════════════════════════════');
+  //   debugPrint('🔵 SIGNIN START: $email');
+  //   debugPrint('════════════════════════════════════════');
+  //
+  //   _status = AuthStatus.loading;
+  //   _errorMessage = null;
+  //   notifyListeners();
+  //
+  //   try {
+  //     final response = await _supabase.auth.signInWithPassword(
+  //       email: email,
+  //       password: password,
+  //     );
+  //
+  //     if (response.user == null) {
+  //       throw Exception('Connexion échouée : aucun utilisateur retourné');
+  //     }
+  //
+  //     final user = response.user!;
+  //     debugPrint('✅ Signed in successfully');
+  //     debugPrint('   User ID: ${user.id}');
+  //     debugPrint('   Email confirmed: ${user.emailConfirmedAt != null}');
+  //
+  //     if (user.emailConfirmedAt == null) {
+  //       debugPrint('⚠️ Email not verified');
+  //       _status = AuthStatus.emailVerificationPending;
+  //       notifyListeners();
+  //       return true;
+  //     }
+  //
+  //     await _loadUserFromSupabase(user.id);
+  //     _startSessionManagement();
+  //
+  //     debugPrint('✅ SIGNIN SUCCESS');
+  //     debugPrint('   Status: $_status');
+  //     debugPrint('════════════════════════════════════════');
+  //
+  //     return true;
+  //   } on AuthException catch (e) {
+  //     debugPrint('❌ AUTH EXCEPTION during signin');
+  //     debugPrint('   Status Code: ${e.statusCode}');
+  //     debugPrint('   Message: ${e.message}');
+  //
+  //     // ✅ ========== AJOUTER CE BLOC ICI (AVANT LES AUTRES CONDITIONS) ==========
+  //
+  //     // 🔍 Détecter email inexistant → basculer vers signup
+  //     if (e.statusCode == '400' && _isEmailNotFound(e.message)) {
+  //       _errorMessage = 'email_not_found'; // ⚠️ Code spécial pour l'UI
+  //       _status = AuthStatus.error;
+  //       notifyListeners();
+  //       return false;
+  //     }
+  //
+  //     // ✅ ========== FIN DU BLOC À AJOUTER ==========
+  //
+  //     // Le reste du code existant continue...
+  //     _errorMessage = _handleAuthError(e);
+  //     _status = AuthStatus.error;
+  //     notifyListeners();
+  //     return false;
+  //   } catch (e, stack) {
+  //     debugPrint('❌ UNEXPECTED ERROR during signin: $e');
+  //     debugPrint('Stack trace: $stack');
+  //
+  //     _errorMessage = 'Erreur de connexion: $e';
+  //     _status = AuthStatus.error;
+  //     notifyListeners();
+  //     return false;
+  //   }
+  // }
   Future<bool> signIn({required String email, required String password}) async {
     debugPrint('════════════════════════════════════════');
     debugPrint('🔵 SIGNIN START: $email');
@@ -275,19 +441,6 @@ class AuthProvider extends ChangeNotifier {
       debugPrint('   Status Code: ${e.statusCode}');
       debugPrint('   Message: ${e.message}');
 
-      // ✅ ========== AJOUTER CE BLOC ICI (AVANT LES AUTRES CONDITIONS) ==========
-
-      // 🔍 Détecter email inexistant → basculer vers signup
-      if (e.statusCode == '400' && _isEmailNotFound(e.message)) {
-        _errorMessage = 'email_not_found'; // ⚠️ Code spécial pour l'UI
-        _status = AuthStatus.error;
-        notifyListeners();
-        return false;
-      }
-
-      // ✅ ========== FIN DU BLOC À AJOUTER ==========
-
-      // Le reste du code existant continue...
       _errorMessage = _handleAuthError(e);
       _status = AuthStatus.error;
       notifyListeners();
@@ -302,7 +455,6 @@ class AuthProvider extends ChangeNotifier {
       return false;
     }
   }
-
   // ════════════════════════════════════════════════════════════════
   // 🔧 GESTION DES ERREURS AUTH AMÉLIORÉE
   // ════════════════════════════════════════════════════════════════
@@ -311,42 +463,53 @@ class AuthProvider extends ChangeNotifier {
   // 3️⃣ AMÉLIORER _handleAuthError() (OPTIONNEL mais recommandé)
   // ────────────────────────────────────────────────────────────────
 
+  // String _handleAuthError(AuthException e) {
+  //   debugPrint('🔍 Parsing Auth error: ${e.statusCode} - ${e.message}');
+  //
+  //   switch (e.statusCode) {
+  //     case '400':
+  //       if (e.message.contains('Invalid login credentials')) {
+  //         // ✅ Message générique (pour que le rate limiter détecte le password)
+  //         return 'Email ou mot de passe incorrect';
+  //       }
+  //       if (e.message.contains('Email not confirmed')) {
+  //         return 'Veuillez confirmer votre email avant de vous connecter';
+  //       }
+  //       return 'Requête invalide';
+  //
+  //     case '422':
+  //       if (e.message.contains('already registered') ||
+  //           e.message.contains('already been registered')) {
+  //         return 'Cet email est déjà utilisé';
+  //       }
+  //       if (e.message.contains('User already registered')) {
+  //         return 'Compte déjà existant';
+  //       }
+  //       return 'Données invalides';
+  //
+  //     case '429':
+  //       return 'Trop de tentatives. Réessayez dans quelques minutes';
+  //
+  //     case '500':
+  //       return 'Erreur serveur. Réessayez plus tard';
+  //
+  //     default:
+  //       debugPrint('⚠️ Unhandled Auth error code: ${e.statusCode}');
+  //       return e.message;
+  //   }
+  // }
   String _handleAuthError(AuthException e) {
-    debugPrint('🔍 Parsing Auth error: ${e.statusCode} - ${e.message}');
-
     switch (e.statusCode) {
       case '400':
-        if (e.message.contains('Invalid login credentials')) {
-          // ✅ Message générique (pour que le rate limiter détecte le password)
-          return 'Email ou mot de passe incorrect';
-        }
-        if (e.message.contains('Email not confirmed')) {
-          return 'Veuillez confirmer votre email avant de vous connecter';
-        }
-        return 'Requête invalide';
-
+        return 'Email ou mot de passe invalide';
       case '422':
-        if (e.message.contains('already registered') ||
-            e.message.contains('already been registered')) {
-          return 'Cet email est déjà utilisé';
-        }
-        if (e.message.contains('User already registered')) {
-          return 'Compte déjà existant';
-        }
         return 'Données invalides';
-
       case '429':
-        return 'Trop de tentatives. Réessayez dans quelques minutes';
-
-      case '500':
-        return 'Erreur serveur. Réessayez plus tard';
-
+        return 'Trop de tentatives. Réessayez plus tard';
       default:
-        debugPrint('⚠️ Unhandled Auth error code: ${e.statusCode}');
         return e.message;
     }
   }
-
   // ════════════════════════════════════════════════════════════════
   // 🔧 CHARGEMENT PROFIL DEPUIS SUPABASE - AMÉLIORÉ
   // ════════════════════════════════════════════════════════════════

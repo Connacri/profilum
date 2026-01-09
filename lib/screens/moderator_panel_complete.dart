@@ -1,4 +1,4 @@
-// lib/screens/moderator_panel_modern.dart - DESIGN MODERNE TYPE APP MOBILE
+// lib/screens/moderator_panel_fixed.dart - ✅ CORRIGÉ
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/auth_provider.dart';
 import '../widgets/account_deletion_dialog.dart';
+import 'moderation_detail_screen.dart';
 
 class ModeratorPanelScreen extends StatefulWidget {
   const ModeratorPanelScreen({super.key});
@@ -22,6 +23,7 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
   bool _isLoading = true;
   Map<String, dynamic> _stats = {};
   List<Map<String, dynamic>> _pendingPhotos = [];
+  List<String> _preloadedUrls = []; // ✅ NOUVEAU: URLs préchargées
   int _currentPhotoIndex = 0;
 
   @override
@@ -42,11 +44,10 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
     setState(() => _isLoading = true);
 
     try {
-      final pendingCount = await _supabase
-          .from('photos')
-          .select('id')
-          .eq('status', 'pending')
-          .count();
+      final pendingCount = await _supabase.from('photos').select('id').inFilter(
+        'status',
+        ['pending', 'rejected'],
+      ).count();
 
       final moderatorId = _supabase.auth.currentUser!.id;
       final today = DateTime.now()
@@ -69,17 +70,30 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
           .gte('moderated_at', today)
           .count();
 
+      // ✅ Charger photos pending ET rejected
       final photos = await _supabase
           .from('photos')
           .select(
-            'id, user_id, remote_path, uploaded_at, type, has_watermark, profiles!photos_user_id_fkey(full_name, email, gender, city)',
+            'id, user_id, remote_path, uploaded_at, type, status, has_watermark, profiles!photos_user_id_fkey(full_name, email, gender, city)',
           )
-          .eq('status', 'pending')
+          .inFilter('status', ['pending', 'rejected'])
           .not('remote_path', 'is', null)
-          .order('uploaded_at', ascending: true)
+          .order('uploaded_at', ascending: false)
           .limit(50);
 
       if (!mounted) return;
+
+      // ✅ Construire les URLs
+      final photosWithUrls = photos.map<Map<String, dynamic>>((p) {
+        final url = _buildPhotoUrl(p['remote_path'] as String);
+        return {...p, 'url': url};
+      }).toList();
+
+      // ✅ Précharger les images
+      _preloadedUrls = photosWithUrls.map((p) => p['url'] as String).toList();
+      for (final url in _preloadedUrls) {
+        precacheImage(CachedNetworkImageProvider(url), context);
+      }
 
       setState(() {
         _stats = {
@@ -88,13 +102,35 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
           'rejected': rejectedToday.count,
           'total': approvedToday.count + rejectedToday.count,
         };
-        _pendingPhotos = List<Map<String, dynamic>>.from(photos);
+        _pendingPhotos = photosWithUrls;
         _isLoading = false;
       });
     } catch (e) {
       debugPrint('❌ Load error: $e');
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// 🔗 Construire l'URL complète d'une photo (depuis ProfilePage)
+  String _buildPhotoUrl(String path) {
+    // ✅ Valider que le path ne contient pas déjà l'URL complète
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      debugPrint('⚠️ Path already contains full URL: $path');
+      return path;
+    }
+
+    // ✅ Nettoyer le path (enlever les slashes en trop)
+    final cleanPath = path
+        .replaceAll(RegExp(r'^/+'), '')
+        .replaceAll(RegExp(r'/+'), '/');
+
+    // ✅ Construire l'URL publique
+    final url = _supabase.storage.from('profiles').getPublicUrl(cleanPath);
+
+    debugPrint('🔗 Built URL: $url');
+    debugPrint('   From path: $cleanPath');
+
+    return url;
   }
 
   @override
@@ -216,40 +252,56 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
     );
   }
 
-  /// 📊 COMPACT STATS
+  /// 📊 COMPACT STATS (✅ Cliquables)
   Widget _buildCompactStatsGrid(ThemeData theme) {
     return Row(
       children: [
         Expanded(
-          child: _buildCompactStat(
-            theme,
-            'En attente',
-            _stats['pending'] ?? 0,
-            Colors.orange,
-            Icons.pending,
+          child: GestureDetector(
+            onTap: () => _navigateToModeration(theme, 'pending'),
+            child: _buildCompactStat(
+              theme,
+              'En attente',
+              _stats['pending'] ?? 0,
+              Colors.orange,
+              Icons.pending,
+            ),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: _buildCompactStat(
-            theme,
-            'Validées',
-            _stats['approved'] ?? 0,
-            Colors.green,
-            Icons.check_circle,
+          child: GestureDetector(
+            onTap: () => _navigateToModeration(theme, 'approved'),
+            child: _buildCompactStat(
+              theme,
+              'Validées',
+              _stats['approved'] ?? 0,
+              Colors.green,
+              Icons.check_circle,
+            ),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: _buildCompactStat(
-            theme,
-            'Rejetées',
-            _stats['rejected'] ?? 0,
-            Colors.red,
-            Icons.cancel,
+          child: GestureDetector(
+            onTap: () => _navigateToModeration(theme, 'rejected'),
+            child: _buildCompactStat(
+              theme,
+              'Rejetées',
+              _stats['rejected'] ?? 0,
+              Colors.red,
+              Icons.cancel,
+            ),
           ),
         ),
       ],
+    );
+  }
+
+  void _navigateToModeration(ThemeData theme, String status) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ModerationDetailScreen(status: status)),
     );
   }
 
@@ -261,34 +313,31 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
     IconData icon,
   ) {
     return Container(
-      padding: const EdgeInsets.all(12), // ✅ Réduit de 16 → 12
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: color.withOpacity(0.3)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min, // ✅ AJOUTÉ - évite expansion
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: color, size: 24), // ✅ Réduit 28 → 24
-          const SizedBox(height: 6), // ✅ Réduit 8 → 6
+          Icon(icon, color: color, size: 24),
+          const SizedBox(height: 6),
           Text(
             '$value',
             style: theme.textTheme.titleLarge?.copyWith(
-              // ✅ headlineSmall → titleLarge
               fontWeight: FontWeight.bold,
               color: color,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 2), // ✅ AJOUTÉ - espacement
+          const SizedBox(height: 2),
           Text(
             label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontSize: 11,
-            ), // ✅ Force plus petit
+            style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -383,16 +432,14 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
           final profile = photo['profiles'];
           final userName =
               profile?['full_name'] ?? profile?['email'] ?? 'Utilisateur';
+          final photoUrl = photo['url'] as String;
+
           return Card(
             margin: const EdgeInsets.only(bottom: 8),
             child: ListTile(
               leading: CircleAvatar(
-                backgroundImage: photo['remote_path'] != null
-                    ? CachedNetworkImageProvider(photo['remote_path'])
-                    : null,
-                child: photo['remote_path'] == null
-                    ? const Icon(Icons.person)
-                    : null,
+                backgroundImage: CachedNetworkImageProvider(photoUrl),
+                child: photo['url'] == null ? const Icon(Icons.person) : null,
               ),
               title: Text(
                 userName,
@@ -400,12 +447,17 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
                 overflow: TextOverflow.ellipsis,
               ),
               subtitle: Text(
-                'Il y a ${_timeAgo(DateTime.parse(photo['uploaded_at']))}',
+                '${photo['status']} • Il y a ${_timeAgo(DateTime.parse(photo['uploaded_at']))}',
                 style: theme.textTheme.bodySmall,
               ),
               trailing: Chip(
-                label: const Text('En attente', style: TextStyle(fontSize: 11)),
-                backgroundColor: Colors.orange.withOpacity(0.2),
+                label: Text(
+                  photo['status'].toString().toUpperCase(),
+                  style: const TextStyle(fontSize: 11),
+                ),
+                backgroundColor: photo['status'] == 'pending'
+                    ? Colors.orange.withOpacity(0.2)
+                    : Colors.red.withOpacity(0.2),
               ),
             ),
           );
@@ -421,7 +473,7 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
     return '${diff.inDays}j';
   }
 
-  /// 🎴 SWIPE MODERATION
+  /// 🎴 SWIPE MODERATION (avec CachedNetworkImage)
   Widget _buildSwipeModeration(ThemeData theme) {
     if (_pendingPhotos.isEmpty) {
       return Center(
@@ -481,6 +533,8 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
     final profile = photo['profiles'];
     final userName =
         profile?['full_name'] ?? profile?['email'] ?? 'Utilisateur';
+    final photoUrl = photo['url'] as String;
+    final status = photo['status'] as String;
 
     return Column(
       children: [
@@ -502,13 +556,35 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
               child: Stack(
                 fit: StackFit.expand,
                 children: [
+                  // ✅ Image avec préchargement
                   CachedNetworkImage(
-                    imageUrl: photo['remote_path'],
+                    imageUrl: photoUrl,
                     fit: BoxFit.cover,
                     placeholder: (_, __) => Container(
                       color: theme.colorScheme.surfaceVariant,
                       child: const Center(child: CircularProgressIndicator()),
                     ),
+                    errorWidget: (_, url, error) {
+                      debugPrint('❌ Image load error: $url - $error');
+                      return Container(
+                        color: theme.colorScheme.errorContainer,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.broken_image,
+                              size: 48,
+                              color: theme.colorScheme.error,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Erreur chargement',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
 
                   // Gradient overlay
@@ -556,7 +632,7 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
                                     ),
                                     Text(
                                       profile?['city'] ?? '',
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         color: Colors.white70,
                                         fontSize: 12,
                                       ),
@@ -566,27 +642,22 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 12),
                           Wrap(
                             spacing: 8,
                             children: [
-                              if (photo['has_watermark'] == true)
-                                Chip(
-                                  label: const Text(
-                                    'Caméra',
-                                    style: TextStyle(fontSize: 11),
-                                  ),
-                                  avatar: const Icon(
-                                    Icons.camera_alt,
-                                    size: 14,
-                                  ),
-                                  backgroundColor: Colors.purple.withOpacity(
-                                    0.3,
-                                  ),
-                                  labelStyle: const TextStyle(
-                                    color: Colors.white,
-                                  ),
+                              Chip(
+                                label: Text(
+                                  status.toUpperCase(),
+                                  style: const TextStyle(fontSize: 11),
                                 ),
+                                backgroundColor: status == 'pending'
+                                    ? Colors.orange.withOpacity(0.3)
+                                    : Colors.red.withOpacity(0.3),
+                                labelStyle: const TextStyle(
+                                  color: Colors.white,
+                                ),
+                              ),
                               Chip(
                                 label: Text(
                                   _timeAgo(
@@ -649,22 +720,45 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
   }
 
   void _showPhotoInfo() {
+    final photo = _pendingPhotos[_currentPhotoIndex];
     showModalBottomSheet(
       context: context,
       builder: (ctx) => Container(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Détails de la photo',
               style: Theme.of(ctx).textTheme.titleLarge,
             ),
             const SizedBox(height: 16),
-            // Info photo
-            const Text('Informations détaillées ici...'),
+            _buildInfoRow('ID', photo['id'] as String),
+            _buildInfoRow('Type', photo['type'] as String),
+            _buildInfoRow('Statut', photo['status'] as String),
+            _buildInfoRow(
+              'Uploadée',
+              DateTime.parse(
+                photo['uploaded_at'] as String,
+              ).toString().split('.')[0],
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.bold)),
+          Expanded(
+            child: Text(value, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+        ],
       ),
     );
   }
@@ -745,8 +839,6 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
           ),
         ),
         const Divider(),
-
-        // ❌ SUPPRESSION DÉFINITIVE
         ListTile(
           leading: const Icon(Icons.delete_forever, color: Colors.red),
           title: const Text(
@@ -766,8 +858,7 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
             );
 
             if (confirmed == true && mounted) {
-              // Redirect automatique vers AuthScreen via AuthProvider
-              // (le status change à accountDeleted)
+              // Redirect automatique via AuthProvider
             }
           },
         ),
@@ -775,7 +866,7 @@ class _ModeratorPanelScreenState extends State<ModeratorPanelScreen>
     );
   }
 
-  /// 🔽 BOTTOM NAV
+  /// 📽️ BOTTOM NAV
   Widget _buildBottomNav(ThemeData theme) {
     return NavigationBar(
       selectedIndex: _tabController.index,

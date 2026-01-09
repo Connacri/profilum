@@ -11,6 +11,7 @@ import 'providers/auth_provider.dart';
 import 'providers/profile_completion_provider.dart';
 import 'providers/theme_provider.dart';
 import 'services/image_service.dart';
+import 'services/profile_image_service.dart';
 import 'widgets/auth_rate_limiter.dart';
 
 void main() async {
@@ -66,7 +67,9 @@ class ProfilumApp extends StatelessWidget {
         Provider<ImageService>(
           create: (context) => ImageService(context.read<SupabaseClient>()),
         ),
-
+        Provider<ProfileImageService>(
+          create: (_) => ProfileImageService(Supabase.instance.client),
+        ),
         // ════════════════════════════════════════════════════════
         // 🔹 NIVEAU 3 : Providers avec dépendances complexes
         // ════════════════════════════════════════════════════════
