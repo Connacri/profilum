@@ -49,6 +49,7 @@ class ProfileCompletionProvider extends ChangeNotifier {
     'profile_photo': false,
     'gallery_photos': false,
   };
+  bool get mounted => _user != null;
 
   ProfileCompletionProvider(
     this._supabase,
@@ -94,19 +95,35 @@ class ProfileCompletionProvider extends ChangeNotifier {
     );
   }
 
+  // lib/providers/profile_completion_provider.dart - ✅ FIX CHARGEMENT PHOTOS
+
+  // ════════════════════════════════════════════════════════════════
+  // 📸 REMPLACER LA MÉTHODE _loadExistingPhotos()
+  // ════════════════════════════════════════════════════════════════
+
   Future<void> _loadExistingPhotos() async {
     if (_user == null) return;
     _isLoadingPhotos = true;
     safeNotify();
 
     try {
+      // ✅ Charger TOUTES les photos du user (approved + pending)
       final photos = await _objectBox.getUserPhotos(_user!.userId);
-      final approved = photos.where((p) => p.status == 'approved').toList();
-      approved.sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
 
-      final profilePhotoEntity = approved
+      // ✅ Accepter approved ET pending (pas les rejected)
+      final validPhotos = photos
+          .where((p) => p.status == 'approved' || p.status == 'pending')
+          .toList();
+
+      validPhotos.sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+
+      debugPrint('📸 Loaded ${validPhotos.length} photos (approved + pending)');
+
+      // ✅ Photo de profil
+      final profilePhotoEntity = validPhotos
           .where((p) => p.type == 'profile')
           .firstOrNull;
+
       if (profilePhotoEntity != null && profilePhotoEntity.remotePath != null) {
         _profilePhoto = PhotoItem(
           id: profilePhotoEntity.photoId,
@@ -114,23 +131,24 @@ class ProfileCompletionProvider extends ChangeNotifier {
           remotePath: profilePhotoEntity.remotePath, // ✅ PATH stocké
           displayOrder: 0,
           type: 'profile',
-          status: profilePhotoEntity.status,
+          status: profilePhotoEntity.status, // ✅ Passer le status
           hasWatermark: profilePhotoEntity.hasWatermark,
           uploadedAt: profilePhotoEntity.uploadedAt,
           moderatedAt: profilePhotoEntity.moderatedAt,
         );
       }
 
-      _galleryPhotos = approved
+      // ✅ Photos galerie
+      _galleryPhotos = validPhotos
           .where((p) => p.type == 'gallery' && p.remotePath != null)
           .map(
             (p) => PhotoItem(
               id: p.photoId,
               source: PhotoSource.remote,
-              remotePath: p.remotePath, // ✅ PATH stocké
+              remotePath: p.remotePath,
               displayOrder: p.displayOrder,
               type: 'gallery',
-              status: p.status,
+              status: p.status, // ✅ Passer le status
               hasWatermark: p.hasWatermark,
               uploadedAt: p.uploadedAt,
               moderatedAt: p.moderatedAt,
@@ -138,10 +156,16 @@ class ProfileCompletionProvider extends ChangeNotifier {
           )
           .toList();
 
-      debugPrint('✅ Loaded ${_galleryPhotos.length} existing photos');
+      debugPrint('📷 Profile photo: ${_profilePhoto?.status ?? 'none'}');
+      debugPrint('🖼️ Gallery photos: ${_galleryPhotos.length}');
+      for (var i = 0; i < _galleryPhotos.length; i++) {
+        debugPrint('   [$i] ${_galleryPhotos[i].status}');
+      }
+
       _updateCompletionFields();
-    } catch (e) {
+    } catch (e, stack) {
       debugPrint('❌ Error loading photos: $e');
+      debugPrint('Stack: $stack');
     } finally {
       _isLoadingPhotos = false;
       safeNotify();
@@ -541,11 +565,28 @@ class ProfileCompletionProvider extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════
 
   void reset() {
+    debugPrint('🧹 ProfileCompletionProvider: Resetting all data');
+
+    // Reset user
+    _user = null;
+
+    // Reset photos
     _profilePhoto = null;
     _galleryPhotos.clear();
+
+    // Reset deletion tracking
     _deletedPhotoPaths.clear();
     _deletedProfilePhotoPath = null;
+
+    // Reset state
+    _isLoading = false;
+    _isLoadingPhotos = false;
     _errorMessage = null;
+
+    // Reset completion fields
+    _completionFields.updateAll((key, value) => false);
+
+    debugPrint('✅ ProfileCompletionProvider reset complete');
     safeNotify();
   }
 
@@ -560,6 +601,4 @@ class ProfileCompletionProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
-
-  bool get mounted => _user != null;
 }

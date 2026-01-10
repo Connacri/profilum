@@ -737,12 +737,49 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
-    await _supabase.auth.signOut();
-    await _clearLocalSession();
-    _stopSessionManagement();
-    _status = AuthStatus.unauthenticated;
-    _currentUser = null;
-    notifyListeners();
+    debugPrint('════════════════════════════════════════');
+    debugPrint('🔵 SIGNOUT START');
+    debugPrint('════════════════════════════════════════');
+
+    try {
+      // ✅ ÉTAPE 1 : Déconnexion Supabase
+      await _supabase.auth.signOut();
+      debugPrint('✅ Supabase signOut done');
+
+      // ✅ ÉTAPE 2 : Clear local session
+      await _clearLocalSession();
+      debugPrint('✅ Local session cleared');
+
+      // ✅ ÉTAPE 3 : Stop session management
+      _stopSessionManagement();
+      debugPrint('✅ Session management stopped');
+
+      // ✅ ÉTAPE 4 : Reset AuthProvider state
+      _currentUser = null;
+      _errorMessage = null;
+      _status = AuthStatus.unauthenticated;
+      debugPrint('✅ AuthProvider state reset');
+
+      // ✅ ÉTAPE 5 : Clear rate limiter (si utilisé)
+      if (_rateLimiter != null) {
+        await _rateLimiter!.clear();
+        debugPrint('✅ Rate limiter cleared');
+      }
+
+      // ✅ ÉTAPE 6 : Notify listeners AVANT de reset les autres providers
+      notifyListeners();
+
+      debugPrint('✅ SIGNOUT SUCCESS');
+      debugPrint('════════════════════════════════════════');
+    } catch (e, stack) {
+      debugPrint('❌ SIGNOUT ERROR: $e');
+      debugPrint('Stack: $stack');
+
+      // Forcer le reset même en cas d'erreur
+      _currentUser = null;
+      _status = AuthStatus.unauthenticated;
+      notifyListeners();
+    }
   }
 
   Future<bool> resetPassword(String email) async {
@@ -886,8 +923,28 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _clearLocalSession() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // ✅ Clear toutes les clés liées à l'auth
+      await prefs.remove('has_active_session');
+      await prefs.remove('access_token');
+      await prefs.remove('token_expires_at');
+
+      // ✅ Clear les clés de skip profile completion
+      final keys = prefs.getKeys();
+      for (final key in keys) {
+        if (key.startsWith(_keyProfileSkipped) ||
+            key.startsWith(_keySkippedAt) ||
+            key.startsWith(_keyLastReminder)) {
+          await prefs.remove(key);
+        }
+      }
+
+      debugPrint('✅ SharedPreferences cleared');
+    } catch (e) {
+      debugPrint('⚠️ Clear session error: $e');
+    }
   }
 
   UserEntity _mapToUserEntity(Map<String, dynamic> data) {

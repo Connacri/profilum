@@ -94,6 +94,21 @@ class ProfilumApp extends StatelessWidget {
             });
           }
 
+          // ✅ NOUVEAU : Reset ProfileCompletionProvider au signOut
+          if (authProvider.status == AuthStatus.unauthenticated) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (context.mounted) {
+                // Reset le provider de completion
+                context.read<ProfileCompletionProvider>().reset();
+
+                // Reset le theme gender (optionnel)
+                themeProvider.setUserGender(null);
+
+                debugPrint('🧹 All providers reset after signOut');
+              }
+            });
+          }
+
           return MaterialApp.router(
             title: 'Profilum',
             debugShowCheckedModeBanner: false,
@@ -108,66 +123,3 @@ class ProfilumApp extends StatelessWidget {
     );
   }
 }
-
-// class ProfilumApp extends StatelessWidget {
-//   final ObjectBoxService objectBox;
-//
-//   const ProfilumApp({super.key, required this.objectBox});
-//
-//   @override
-//   Widget build(BuildContext context) {
-//     return MultiProvider(
-//       providers: [
-//         Provider<ObjectBoxService>.value(value: objectBox),
-//         Provider<SupabaseClient>(create: (_) => Supabase.instance.client),
-//
-//         ChangeNotifierProvider<ThemeProvider>(create: (_) => ThemeProvider()),
-//
-//         ChangeNotifierProvider<AuthProvider>(
-//           create: (context) => AuthProvider(
-//             context.read<SupabaseClient>(),
-//             context.read<ObjectBoxService>(),
-//             rateLimiter: context.read<AuthRateLimiter>(), // ✅ Injecter
-//           ),
-//         ),
-//
-//         Provider<ImageService>(
-//           create: (context) => ImageService(context.read<SupabaseClient>()),
-//         ),
-//
-//         ChangeNotifierProvider<ProfileCompletionProvider>(
-//           create: (context) => ProfileCompletionProvider(
-//             context.read<SupabaseClient>(),
-//             context.read<ObjectBoxService>(),
-//             context.read<ImageService>(),
-//           ),
-//         ),
-//       ],
-//       child: Consumer2<ThemeProvider, AuthProvider>(
-//         builder: (context, themeProvider, authProvider, _) {
-//           // ✅ FIX: Mettre à jour le gender SEULEMENT après le build
-//           final currentGender = authProvider.currentUser?.gender;
-//           if (currentGender != null &&
-//               themeProvider.userGender != currentGender) {
-//             // ✅ Cette méthode schedule la mise à jour après le build
-//             WidgetsBinding.instance.addPostFrameCallback((_) {
-//               if (context.mounted) {
-//                 themeProvider.setUserGender(currentGender);
-//               }
-//             });
-//           }
-//
-//           return MaterialApp.router(
-//             title: 'Profilum',
-//             debugShowCheckedModeBanner: false,
-//             theme: themeProvider.getLightTheme(),
-//             darkTheme: themeProvider.getDarkTheme(),
-//             themeMode: themeProvider.themeMode,
-//             routerDelegate: AppRouter(authProvider),
-//             routeInformationParser: AppRouteInformationParser(),
-//           );
-//         },
-//       ),
-//     );
-//   }
-// }

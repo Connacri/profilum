@@ -30,11 +30,13 @@ class ThemeProvider extends ChangeNotifier {
   }
 
   // ✅ FIX: Version simplifiée - ne notifie que si ça change vraiment
-  void setUserGender(String gender) {
+  void setUserGender(String? gender) {
+    // ✅ Accepter null
     if (_userGender == gender) return; // ✅ Évite les rebuilds inutiles
 
     _userGender = gender;
-    notifyListeners(); // ✅ Notifie directement (appelé après le build via addPostFrameCallback)
+    debugPrint('🎨 Theme gender updated: ${gender ?? "reset to default"}');
+    notifyListeners();
   }
 
   ThemeData getLightTheme() {

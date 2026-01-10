@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/auth_provider.dart';
+import '../services/fix_photo_url_builder.dart';
 import '../services/services.dart';
 import '../widgets/account_deletion_dialog.dart';
 import 'profile_completion_screen.dart';
@@ -38,10 +39,13 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _isLoadingPhotos = true;
   bool _isOwnProfile = false;
   String? _errorMessage;
+  late final PhotoUrlHelper _photoUrlHelper; // ✅ AJOUTER
 
   @override
   void initState() {
     super.initState();
+    _photoUrlHelper = PhotoUrlHelper(Supabase.instance.client); // ✅ AJOUTER
+
     _loadPhotos();
   }
 
@@ -61,7 +65,6 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       final authProvider = context.read<AuthProvider>();
       final objectBox = context.read<ObjectBoxService>();
-      final supabase = Supabase.instance.client;
 
       final currentUserId = authProvider.currentUser?.userId;
       final targetUserId = widget.viewingUserId ?? currentUserId;
@@ -84,7 +87,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
       // 📦 Charger depuis ObjectBox
       final photos = await objectBox.getUserPhotos(targetUserId);
-
       debugPrint('📦 ObjectBox returned ${photos.length} photos');
 
       // 🎯 Filtrage intelligent selon le contexte
@@ -119,37 +121,46 @@ class _ProfilePageState extends State<ProfilePage> {
       // 📐 Trier par display_order
       filteredPhotos.sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
 
-      // 🖼️ Construire les URLs
+      // 🖼️ Construire les URLs avec le helper
       final profilePhotoEntity = filteredPhotos
           .where((p) => p.type == 'profile')
           .cast<dynamic>()
           .firstOrNull;
 
       if (profilePhotoEntity != null) {
-        final url = _buildPhotoUrl(supabase, profilePhotoEntity.remotePath!);
+        // ✅ Construire URL via helper
+        final url = _photoUrlHelper.buildPhotoUrl(
+          profilePhotoEntity.remotePath!,
+        );
+
         _profilePhoto = PhotoDisplay(
           url: url,
           type: 'profile',
           status: profilePhotoEntity.status ?? 'approved',
         );
-        debugPrint('📷 Profile photo: $url (status: ${_profilePhoto!.status})');
+
+        debugPrint('📷 Profile photo:');
+        debugPrint('   - Status: ${_profilePhoto!.status}');
+        debugPrint('   - URL: ${_profilePhoto!.url}');
+      } else {
+        debugPrint('📷 No profile photo found');
       }
 
-      _galleryPhotos = filteredPhotos
-          .where((p) => p.type == 'gallery')
-          .map(
-            (p) => PhotoDisplay(
-              url: _buildPhotoUrl(supabase, p.remotePath!),
-              type: 'gallery',
-              status: p.status ?? 'approved',
-            ),
-          )
-          .toList();
+      _galleryPhotos = filteredPhotos.where((p) => p.type == 'gallery').map((
+        p,
+      ) {
+        final url = _photoUrlHelper.buildPhotoUrl(p.remotePath!);
+        return PhotoDisplay(
+          url: url,
+          type: 'gallery',
+          status: p.status ?? 'approved',
+        );
+      }).toList();
 
       debugPrint('🖼️ Gallery photos: ${_galleryPhotos.length}');
       for (var i = 0; i < _galleryPhotos.length; i++) {
         debugPrint(
-          '   [$i] ${_galleryPhotos[i].status} - ${_galleryPhotos[i].url}',
+          '   [$i] status=${_galleryPhotos[i].status}, pending=${_galleryPhotos[i].isPending}',
         );
       }
 
@@ -259,7 +270,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   offset: const Offset(0, 20),
                   child: Column(
                     children: [
-                      // ✅ Avatar avec opacité si pending
+                      // ✅ Avatar avec opacité SEULEMENT si pending ET propriétaire
                       Container(
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
@@ -277,8 +288,11 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                         child: Stack(
                           children: [
+                            // ✅ Opacité SEULEMENT si pending ET propriétaire
                             Opacity(
-                              opacity: _profilePhoto?.isPending == true
+                              opacity:
+                                  (_profilePhoto?.isPending == true &&
+                                      _isOwnProfile)
                                   ? 0.5
                                   : 1.0,
                               child: CircleAvatar(
@@ -292,7 +306,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               ),
                             ),
 
-                            // 🏷️ Badge "EN MODÉRATION" si pending
+                            // ✅ Badge "EN MODÉRATION" SEULEMENT si pending ET propriétaire
                             if (_profilePhoto?.isPending == true &&
                                 _isOwnProfile)
                               Positioned(
@@ -416,7 +430,13 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
 
-                // Miniatures photos
+                // lib/screens/profile_page_carousel.dart - ✅ FIX MINIATURES BADGES
+
+                // ════════════════════════════════════════════════════════════════
+                // 🎨 CHERCHER LA SECTION "Miniatures photos" ET REMPLACER ListView.builder
+                // ════════════════════════════════════════════════════════════════
+
+                // Dans la méthode build(), section "Miniatures photos" :
                 if (hasPhotos)
                   Padding(
                     padding: const EdgeInsets.symmetric(
@@ -465,7 +485,11 @@ class _ProfilePageState extends State<ProfilePage> {
                                         ),
                                       ),
                                       child: Opacity(
-                                        opacity: photo.isPending ? 0.5 : 1.0,
+                                        // ✅ Opacité SEULEMENT si pending ET propriétaire
+                                        opacity:
+                                            (photo.isPending && _isOwnProfile)
+                                            ? 0.5
+                                            : 1.0,
                                         child: ClipRRect(
                                           borderRadius: BorderRadius.circular(
                                             6,
@@ -486,7 +510,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                       ),
                                     ),
 
-                                    // Badge "EN MODÉRATION"
+                                    // ✅ Badge "EN MODÉRATION" SEULEMENT si pending ET propriétaire
                                     if (photo.isPending && _isOwnProfile)
                                       Positioned(
                                         top: 4,
@@ -756,7 +780,12 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  /// 🎨 Carousel avec opacité pour photos "pending"
+  // lib/screens/profile_page_carousel.dart - ✅ FIX BADGES CAROUSEL
+
+  // ════════════════════════════════════════════════════════════════
+  // 🎨 REMPLACER LA MÉTHODE _buildPhotoCarousel()
+  // ════════════════════════════════════════════════════════════════
+
   Widget _buildPhotoCarousel() {
     return Stack(
       children: [
@@ -770,12 +799,17 @@ class _ProfilePageState extends State<ProfilePage> {
           itemBuilder: (context, index) {
             final photo = _galleryPhotos[index];
 
+            debugPrint('🖼️ Rendering photo $index:');
+            debugPrint('   - status: ${photo.status}');
+            debugPrint('   - isPending: ${photo.isPending}');
+            debugPrint('   - isOwnProfile: $_isOwnProfile');
+
             return Stack(
               fit: StackFit.expand,
               children: [
-                // Image avec opacité si pending
+                // ✅ Image avec opacité SEULEMENT si pending ET propriétaire
                 Opacity(
-                  opacity: photo.isPending ? 0.5 : 1.0,
+                  opacity: (photo.isPending && _isOwnProfile) ? 0.5 : 1.0,
                   child: Image.network(
                     photo.url,
                     fit: BoxFit.cover,
@@ -790,7 +824,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
 
-                // Badge "EN MODÉRATION" si pending
+                // ✅ Badge "EN MODÉRATION" SEULEMENT si pending ET propriétaire
                 if (photo.isPending && _isOwnProfile)
                   Positioned(
                     top: 16,

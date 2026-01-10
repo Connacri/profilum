@@ -1,8 +1,9 @@
 // lib/screens/profile_detail_screen.dart
-import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../services/fix_photo_url_builder.dart';
 
 /// 🎯 Écran détail profil avec animations et actions
 /// Design: Carousel photos + info scrollable + actions flottantes
@@ -24,10 +25,10 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
     with SingleTickerProviderStateMixin {
   final _supabase = Supabase.instance.client;
   final _pageController = PageController();
-  
+  late final PhotoUrlHelper _photoUrlHelper; // ✅ AJOUTER
   late AnimationController _animController;
   late Animation<double> _scaleAnimation;
-  
+
   int _currentPhotoIndex = 0;
   List<String> _photoUrls = [];
   bool _isProcessing = false;
@@ -35,14 +36,16 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
   @override
   void initState() {
     super.initState();
+    _photoUrlHelper = PhotoUrlHelper(_supabase); // ✅ INITIALISER
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _animController, curve: Curves.easeOut),
-    );
-    
+    _scaleAnimation = Tween<double>(
+      begin: 0.8,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
+
     _loadPhotos();
     _animController.forward();
   }
@@ -55,15 +58,31 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
   }
 
   void _loadPhotos() {
-    final photos = widget.profile['photos'] as List?;
-    if (photos == null) return;
+    debugPrint('════════════════════════════════════════');
+    debugPrint('📸 ProfileDetailScreen._loadPhotos()');
 
-    final urls = photos
-        .where((p) => p['remote_path'] != null)
-        .map<String>((p) => p['remote_path'] as String)
-        .toList();
+    // ✅ Utiliser le helper pour construire les URLs
+    final urls = _photoUrlHelper.buildGalleryPhotoUrls(widget.profile);
 
-    setState(() => _photoUrls = urls);
+    // ✅ Si pas de photos galerie, essayer de prendre la photo de profil
+    if (urls.isEmpty) {
+      final profileUrl = _photoUrlHelper.buildProfilePhotoUrl(widget.profile);
+      if (profileUrl != null) {
+        debugPrint('   → No gallery photos, using profile photo');
+        setState(() => _photoUrls = [profileUrl]);
+      } else {
+        debugPrint('   → No photos found at all');
+        setState(() => _photoUrls = []);
+      }
+    } else {
+      debugPrint('   → Found ${urls.length} gallery photos');
+      setState(() => _photoUrls = urls);
+    }
+
+    for (var i = 0; i < _photoUrls.length; i++) {
+      debugPrint('   [$i] ${_photoUrls[i]}');
+    }
+    debugPrint('════════════════════════════════════════');
   }
 
   @override
@@ -134,7 +153,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 24),
-                      
+
                       // Header avec nom/âge
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -146,9 +165,8 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
                                 children: [
                                   Text(
                                     '$name, $age',
-                                    style: theme.textTheme.headlineMedium?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                                    style: theme.textTheme.headlineMedium
+                                        ?.copyWith(fontWeight: FontWeight.bold),
                                   ),
                                   if (city.isNotEmpty)
                                     Row(
@@ -200,10 +218,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
                                 ),
                               ),
                               const SizedBox(height: 8),
-                              Text(
-                                bio,
-                                style: theme.textTheme.bodyMedium,
-                              ),
+                              Text(bio, style: theme.textTheme.bodyMedium),
                               const SizedBox(height: 24),
                             ],
                           ),
@@ -239,7 +254,9 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
                                     child: Text(
                                       interest.toString(),
                                       style: TextStyle(
-                                        color: theme.colorScheme.onPrimaryContainer,
+                                        color: theme
+                                            .colorScheme
+                                            .onPrimaryContainer,
                                         fontWeight: FontWeight.w500,
                                       ),
                                     ),
@@ -297,9 +314,8 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
             return CachedNetworkImage(
               imageUrl: _photoUrls[index],
               fit: BoxFit.cover,
-              placeholder: (_, __) => Container(
-                color: theme.colorScheme.surfaceVariant,
-              ),
+              placeholder: (_, __) =>
+                  Container(color: theme.colorScheme.surfaceVariant),
               errorWidget: (_, __, ___) => Container(
                 color: theme.colorScheme.errorContainer,
                 child: Icon(
@@ -323,10 +339,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [
-                  Colors.transparent,
-                  Colors.black.withOpacity(0.6),
-                ],
+                colors: [Colors.transparent, Colors.black.withOpacity(0.6)],
               ),
             ),
           ),
@@ -506,10 +519,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
       debugPrint('❌ Send like error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -532,10 +542,7 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                '🎉',
-                style: TextStyle(fontSize: 80),
-              ),
+              const Text('🎉', style: TextStyle(fontSize: 80)),
               const SizedBox(height: 16),
               Text(
                 'C\'est un Match !',
@@ -576,18 +583,18 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
 
   int _calculateAge(String? birthDateStr) {
     if (birthDateStr == null) return 0;
-    
+
     final birthDate = DateTime.tryParse(birthDateStr);
     if (birthDate == null) return 0;
-    
+
     final now = DateTime.now();
     int age = now.year - birthDate.year;
-    
+
     if (now.month < birthDate.month ||
         (now.month == birthDate.month && now.day < birthDate.day)) {
       age--;
     }
-    
+
     return age;
   }
 }

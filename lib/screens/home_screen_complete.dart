@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/auth_provider.dart';
 import '../providers/profile_completion_provider.dart'; // ✅ AJOUTÉ
+import '../services/fix_photo_url_builder.dart';
 import 'profile_completion_screen.dart';
 import 'profile_detail_screen.dart';
 import 'profile_page_carousel.dart';
@@ -241,7 +242,7 @@ class _DiscoverScreenState extends State<DiscoverScreen>
 
   int _page = 0;
   final int _pageSize = 20;
-
+  late final PhotoUrlHelper _photoUrlHelper; // ✅ AJOUTER
   String _filter = 'nearby';
 
   @override
@@ -255,7 +256,7 @@ class _DiscoverScreenState extends State<DiscoverScreen>
       parent: _animController,
       curve: Curves.easeIn,
     );
-
+    _photoUrlHelper = PhotoUrlHelper(_supabase); // ✅ AJOUTE
     _scrollController.addListener(_onScroll);
     _loadProfiles();
     _loadMatches();
@@ -278,12 +279,100 @@ class _DiscoverScreenState extends State<DiscoverScreen>
     }
   }
 
+  // lib/screens/home_screen_complete.dart - ✅ FIX REQUÊTE SUPABASE
+
+  // ════════════════════════════════════════════════════════════════
+  // 📸 REMPLACER LA MÉTHODE _loadProfiles() COMPLÈTE
+  // ════════════════════════════════════════════════════════════════
+
   Future<void> _loadProfiles() async {
     setState(() {
       _isLoading = true;
       _page = 0;
       _profiles.clear();
     });
+
+    try {
+      final currentUserId = _supabase.auth.currentUser?.id;
+      if (currentUserId == null) return;
+
+      debugPrint('════════════════════════════════════════');
+      debugPrint('🔍 LOADING PROFILES');
+      debugPrint('   Current User: $currentUserId');
+      debugPrint('════════════════════════════════════════');
+
+      // ✅ FIX : Requête simplifiée qui retourne les photos comme ARRAY
+      final data = await _supabase
+          .from('profiles')
+          .select('''
+          id,
+          full_name,
+          date_of_birth,
+          city,
+          bio,
+          gender,
+          interests,
+          role,
+          profile_completed,
+          last_active_at,
+          photos:photos!photos_user_id_fkey(
+            remote_path,
+            type,
+            status,
+            display_order
+          )
+        ''')
+          .neq('id', currentUserId)
+          .not('role', 'in', '("admin","moderator")')
+          .order('last_active_at', ascending: false)
+          .range(_page * _pageSize, (_page + 1) * _pageSize - 1);
+
+      if (!mounted) return;
+
+      // ✅ Debug : Vérifier la structure retournée
+      debugPrint('📦 Received ${data.length} profiles');
+      if (data.isNotEmpty) {
+        final first = data.first;
+        debugPrint('   Sample profile:');
+        debugPrint('   - Name: ${first['full_name']}');
+        debugPrint('   - Photos type: ${first['photos'].runtimeType}');
+        debugPrint(
+          '   - Photos count: ${(first['photos'] as List?)?.length ?? 0}',
+        );
+
+        if (first['photos'] is List && (first['photos'] as List).isNotEmpty) {
+          final firstPhoto = (first['photos'] as List).first;
+          debugPrint('   - First photo keys: ${firstPhoto.keys}');
+          debugPrint('   - First photo path: ${firstPhoto['remote_path']}');
+          debugPrint('   - First photo type: ${firstPhoto['type']}');
+          debugPrint('   - First photo status: ${firstPhoto['status']}');
+        }
+      }
+
+      setState(() {
+        _profiles = List<Map<String, dynamic>>.from(data);
+        _hasMore = data.length == _pageSize;
+        _isLoading = false;
+      });
+
+      debugPrint('✅ Profiles loaded successfully');
+      debugPrint('════════════════════════════════════════');
+    } catch (e, stack) {
+      debugPrint('❌ Load profiles error: $e');
+      debugPrint('Stack: $stack');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 📸 REMPLACER AUSSI _loadMore() (même logique)
+  // ════════════════════════════════════════════════════════════════
+
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasMore) return;
+
+    setState(() => _isLoadingMore = true);
+    _page++;
 
     try {
       final currentUserId = _supabase.auth.currentUser?.id;
@@ -299,62 +388,17 @@ class _DiscoverScreenState extends State<DiscoverScreen>
           bio,
           gender,
           interests,
-          role,
           profile_completed,
           last_active_at,
-          photos!photos_user_id_fkey(
+          photos:photos!photos_user_id_fkey(
             remote_path,
             type,
+            status,
             display_order
           )
         ''')
           .neq('id', currentUserId)
           .not('role', 'in', '("admin","moderator")')
-          .order('last_active_at', ascending: false)
-          .range(_page * _pageSize, (_page + 1) * _pageSize - 1);
-
-      if (!mounted) return;
-
-      setState(() {
-        _profiles = List<Map<String, dynamic>>.from(data);
-        _hasMore = data.length == _pageSize;
-        _isLoading = false;
-      });
-    } catch (e) {
-      debugPrint('❌ Load profiles error: $e');
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _loadMore() async {
-    if (_isLoadingMore || !_hasMore) return;
-
-    setState(() => _isLoadingMore = true);
-    _page++;
-
-    try {
-      final currentUserId = _supabase.auth.currentUser?.id;
-      if (currentUserId == null) return;
-
-      final data = await _supabase
-          .from('profiles')
-          .select('''
-            id,
-            full_name,
-            date_of_birth,
-            city,
-            bio,
-            gender,
-            interests,
-            profile_completed,
-            last_active_at,
-            photos!photos_user_id_fkey(
-              remote_path,
-              type,
-              display_order
-            )
-          ''')
-          .neq('id', currentUserId)
           .order('last_active_at', ascending: false)
           .range(_page * _pageSize, (_page + 1) * _pageSize - 1);
 
@@ -596,12 +640,9 @@ class _DiscoverScreenState extends State<DiscoverScreen>
     bool isMatch,
     ThemeData theme,
   ) {
-    final photos = profile['photos'] as List?;
-    final profilePhoto = photos
-        ?.where((p) => p['type'] == 'profile')
-        .firstOrNull;
+    // ✅ UTILISER LE HELPER pour obtenir l'URL
+    final imageUrl = _photoUrlHelper.buildProfilePhotoUrl(profile);
 
-    final imageUrl = profilePhoto?['remote_path'];
     final name = profile['full_name'] ?? 'Utilisateur';
     final city = profile['city'] ?? '';
     final age = _calculateAge(profile['date_of_birth']);
@@ -612,6 +653,10 @@ class _DiscoverScreenState extends State<DiscoverScreen>
                 .difference(DateTime.parse(profile['last_active_at']))
                 .inMinutes <
             15;
+
+    // ✅ Debug pour vérifier
+    debugPrint('🖼️ Profile card for: $name');
+    debugPrint('   URL: ${imageUrl ?? "NO IMAGE"}');
 
     return GestureDetector(
       onTap: () => _openProfile(context, profile),
@@ -635,18 +680,25 @@ class _DiscoverScreenState extends State<DiscoverScreen>
                 borderRadius: BorderRadius.circular(16),
                 child: imageUrl != null
                     ? CachedNetworkImage(
-                        imageUrl: imageUrl,
+                        imageUrl: imageUrl, // ✅ URL complète
                         fit: BoxFit.cover,
                         placeholder: (_, __) =>
                             Container(color: theme.colorScheme.surfaceVariant),
-                        errorWidget: (_, __, ___) => Container(
-                          color: theme.colorScheme.errorContainer,
-                          child: Icon(
-                            Icons.person,
-                            size: 48,
-                            color: theme.colorScheme.error,
-                          ),
-                        ),
+                        errorWidget: (context, url, error) {
+                          // ✅ Debug détaillé en cas d'erreur
+                          debugPrint('❌ Image load failed');
+                          debugPrint('   URL: $url');
+                          debugPrint('   Error: $error');
+
+                          return Container(
+                            color: theme.colorScheme.errorContainer,
+                            child: Icon(
+                              Icons.person,
+                              size: 48,
+                              color: theme.colorScheme.error,
+                            ),
+                          );
+                        },
                       )
                     : Container(
                         color: theme.colorScheme.surfaceVariant,
