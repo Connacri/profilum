@@ -195,11 +195,11 @@ class AuthProvider extends ChangeNotifier {
 
       // ✅ ÉTAPE 2 : Créer le profil MANUELLEMENT dans la table profiles
       debugPrint('🔵 Step 2: Creating profile in database...');
-      await _createUserProfile(
-        userId: user.id,
-        email: user.email!,
-        fullName: fullName,
-      );
+      // await _createUserProfile(
+      //   userId: user.id,
+      //   email: user.email!,
+      //   fullName: fullName,
+      // );
 
       // ✅ ÉTAPE 3 : Charger le profil créé
       debugPrint('🔵 Step 3: Loading created profile...');

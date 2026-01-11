@@ -52,7 +52,9 @@ dependencies:
   # Authentication
   google_sign_in: ^7.2.0
   faker: ^2.2.0
-  http: ^1.2.0
+  http: ^1.6.0
+
+  flutter_text_utils: ^0.1.1
 
   # Database
   objectbox: ^5.1.0

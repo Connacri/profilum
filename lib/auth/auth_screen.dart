@@ -272,14 +272,6 @@ class _AuthScreenAdvancedState extends State<AuthScreenAdvanced>
     }
   }
 
-  bool _isPasswordError(String error) {
-    final lowerError = error.toLowerCase();
-    return lowerError.contains('password') ||
-        lowerError.contains('mot de passe') ||
-        lowerError.contains('incorrect') ||
-        lowerError.contains('invalid');
-  }
-
   void _showAutoSwitchDialog({
     required String title,
     required String message,

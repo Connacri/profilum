@@ -1,7 +1,8 @@
-// lib/screens/home_screen_complete.dart - BANNER DYNAMIQUE
+import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_text_utils/string_extensions.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -323,6 +324,7 @@ class _DiscoverScreenState extends State<DiscoverScreen>
           )
         ''')
           .neq('id', currentUserId)
+          .neq('completion_percentage', 0)
           .not('role', 'in', '("admin","moderator")')
           .order('last_active_at', ascending: false)
           .range(_page * _pageSize, (_page + 1) * _pageSize - 1);
@@ -548,9 +550,9 @@ class _DiscoverScreenState extends State<DiscoverScreen>
             SliverPadding(
               padding: const EdgeInsets.all(16),
               sliver: SliverGrid(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 0.7,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: Platform.isWindows ? 6 : 2,
+                  childAspectRatio: Platform.isWindows ? 0.8 : 0.7,
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 12,
                 ),
@@ -566,9 +568,9 @@ class _DiscoverScreenState extends State<DiscoverScreen>
             SliverPadding(
               padding: const EdgeInsets.all(16),
               sliver: SliverGrid(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 0.7,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: Platform.isWindows ? 6 : 2,
+                  childAspectRatio: Platform.isWindows ? 0.8 : 0.7,
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 12,
                 ),
@@ -743,7 +745,7 @@ class _DiscoverScreenState extends State<DiscoverScreen>
                       children: [
                         Expanded(
                           child: Text(
-                            '$name, $age',
+                            '${name}, $age'.toLowerCase().capitalize(),
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
@@ -769,14 +771,24 @@ class _DiscoverScreenState extends State<DiscoverScreen>
                       ],
                     ),
                     if (city.isNotEmpty)
-                      Text(
-                        '📍 $city',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.9),
-                          fontSize: 12,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.location_on,
+                            color: Colors.red.withOpacity(0.9),
+                            size: 14,
+                          ),
+                          SizedBox(width: 2),
+                          Text(
+                            '$city'.toLowerCase().capitalize(),
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 12,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
                   ],
                 ),
