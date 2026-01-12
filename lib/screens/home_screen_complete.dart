@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/auth_provider.dart';
 import '../providers/profile_completion_provider.dart'; // ✅ AJOUTÉ
 import '../services/fix_photo_url_builder.dart';
+import 'matches_screen.dart';
 import 'profile_completion_screen.dart';
 import 'profile_detail_screen.dart';
 import 'profile_page_carousel.dart';
@@ -202,7 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 0:
         return DiscoverScreen(userGender: widget.gender);
       case 1:
-        return const _MatchesPage();
+        return const MatchesScreen();
       case 2:
         return const _MessagesPage();
       case 3:
@@ -894,39 +895,6 @@ class _DiscoverScreenState extends State<DiscoverScreen>
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (ctx) => ProfileDetailScreen(profile: profile),
-      ),
-    );
-  }
-}
-
-class _MatchesPage extends StatelessWidget {
-  const _MatchesPage();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.handshake_outlined, size: 80, color: Colors.pink),
-            const SizedBox(height: 16),
-            Text(
-              'Matches',
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '💕 Tes matchs apparaîtront ici',
-              style: theme.textTheme.bodyLarge,
-            ),
-          ],
-        ),
       ),
     );
   }
