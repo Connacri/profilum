@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../helper_utilities.dart';
 import '../providers/auth_provider.dart';
 import '../services/fix_photo_url_builder.dart';
 import '../services/services.dart';
@@ -227,7 +228,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 Icon(Icons.error_outline, size: 64, color: Colors.red),
                 const SizedBox(height: 16),
                 Text(
-                  _errorMessage!,
+                  _errorMessage!.toLowerCase().capitalize(),
                   style: theme.textTheme.bodyLarge,
                   textAlign: TextAlign.center,
                 ),
@@ -361,7 +362,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
                       // Nom
                       Text(
-                        user.fullName ?? 'Utilisateur',
+                        user.fullName!.toLowerCase().capitalize() ??
+                            'Utilisateur',
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -382,8 +384,8 @@ class _ProfilePageState extends State<ProfilePage> {
                             const SizedBox(width: 4),
                             Text(
                               [
-                                user.city,
-                                user.country,
+                                user.city!.toLowerCase().capitalize(),
+                                user.country!.toLowerCase().capitalize(),
                               ].where((e) => e != null).join(', '),
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant,
@@ -560,7 +562,10 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Text(user.bio!, style: theme.textTheme.bodyMedium),
+                        Text(
+                          user.bio!.toLowerCase().capitalize(),
+                          style: theme.textTheme.bodyMedium,
+                        ),
                       ],
                     ),
                   ),
@@ -617,7 +622,9 @@ class _ProfilePageState extends State<ProfilePage> {
                           children: user.interests
                               .map(
                                 (interest) => Chip(
-                                  label: Text(interest),
+                                  label: Text(
+                                    interest.toLowerCase().capitalize(),
+                                  ),
                                   backgroundColor: theme
                                       .colorScheme
                                       .primaryContainer
@@ -1014,13 +1021,13 @@ class _StatItem extends StatelessWidget {
         Icon(icon, color: theme.colorScheme.primary),
         const SizedBox(height: 4),
         Text(
-          value,
+          value.toLowerCase().capitalize(),
           style: theme.textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.bold,
           ),
         ),
         Text(
-          label,
+          label.toLowerCase().capitalize(),
           style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
         ),
       ],

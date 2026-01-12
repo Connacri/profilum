@@ -40,7 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ? null
           : AppBar(
               automaticallyImplyLeading: false,
-              title: Text(_getTitle()),
+              title: Text(_getTitle().toLowerCase().capitalize()),
               actions: [
                 IconButton(
                   icon: const Icon(Icons.notifications_outlined),
@@ -71,8 +71,8 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Découvrir',
           ),
           NavigationDestination(
-            icon: Icon(Icons.favorite_outline),
-            selectedIcon: Icon(Icons.favorite),
+            icon: Icon(Icons.handshake),
+            selectedIcon: Icon(Icons.handshake_outlined),
             label: 'Matches',
           ),
           NavigationDestination(
@@ -618,7 +618,7 @@ class _DiscoverScreenState extends State<DiscoverScreen>
 
     return FilterChip(
       selected: isSelected,
-      label: Text(label),
+      label: Text(label.toLowerCase().capitalize()),
       onSelected: (selected) {
         setState(() => _filter = value);
         _loadProfiles();
@@ -912,7 +912,7 @@ class _MatchesPage extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.favorite, size: 80, color: Colors.pink),
+            Icon(Icons.handshake_outlined, size: 80, color: Colors.pink),
             const SizedBox(height: 16),
             Text(
               'Matches',

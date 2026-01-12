@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../helper_utilities.dart';
 import '../providers/auth_provider.dart';
 import '../responsive_helper.dart';
 import '../services/profile_image_service.dart';
@@ -585,7 +586,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 SizedBox(width: context.isMobile ? 12 : 16),
                 Expanded(
                   child: Text(
-                    label,
+                    label.toLowerCase().capitalize(),
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: context.isMobile ? 14 : 16,
@@ -613,7 +614,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       ],
                     ),
                     child: Text(
-                      badge,
+                      badge.toLowerCase().capitalize(),
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 12,
@@ -722,7 +723,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ),
               const SizedBox(height: 4),
               Text(
-                DateFormat('EEEE d MMMM yyyy').format(DateTime.now()),
+                DateFormat(
+                  'EEEE d MMMM yyyy',
+                ).format(DateTime.now()).toLowerCase().capitalize(),
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -867,7 +870,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      trend,
+                      trend.toLowerCase().capitalize(),
                       style: TextStyle(
                         color: trend.startsWith('+')
                             ? Colors.green
@@ -883,7 +886,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  value,
+                  value.toLowerCase().capitalize(),
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: color,
@@ -894,7 +897,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  label,
+                  label.toLowerCase().capitalize(),
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontSize: context.isMobile ? 12 : 11,
                   ),
@@ -958,12 +961,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         userName: user['full_name'] ?? user['email'] ?? '',
         radius: 20,
       ),
-      title: Text(user['full_name'] ?? user['email']),
+      title: Text(
+        user['full_name'].toLowerCase().capitalize() ??
+            user['email'].toLowerCase().capitalize(),
+      ),
       subtitle: Text(
         'Inscrit ${DateFormat('dd/MM/yyyy').format(DateTime.parse(user['created_at']))}',
       ),
       trailing: Chip(
-        label: Text(user['role']),
+        label: Text(user['role'].toLowerCase().capitalize()),
         backgroundColor: theme.colorScheme.secondaryContainer,
       ),
     );
@@ -1196,7 +1202,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              userName,
+                              userName.toLowerCase().capitalize(),
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                               ),
@@ -1217,9 +1223,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            DateFormat(
-                              'dd/MM HH:mm',
-                            ).format(DateTime.parse(photo['uploaded_at'])),
+                            DateFormat('dd/MM HH:mm')
+                                .format(DateTime.parse(photo['uploaded_at']))
+                                .toLowerCase()
+                                .capitalize(),
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
@@ -1237,7 +1244,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
-                              status.toUpperCase(),
+                              status.toLowerCase().capitalize(),
                               style: TextStyle(
                                 fontSize: 8,
                                 fontWeight: FontWeight.bold,
@@ -1305,7 +1312,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           children: [
             Icon(Icons.error_outline, size: 48, color: Colors.orange),
             const SizedBox(height: 8),
-            Text(message, style: theme.textTheme.bodySmall),
+            Text(
+              message.toLowerCase().capitalize(),
+              style: theme.textTheme.bodySmall,
+            ),
           ],
         ),
       ),
@@ -1416,13 +1426,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         radius: 20,
       ),
 
-      title: Text(user['full_name'] ?? user['email']),
-      subtitle: Text(user['email']),
+      title: Text(
+        user['full_name'].toLowerCase().capitalize() ??
+            user['email'].toLowerCase().capitalize(),
+      ),
+      subtitle: Text(user['email'].toLowerCase().capitalize()),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Chip(
-            label: Text(user['role']),
+            label: Text(user['role'].toLowerCase().capitalize()),
             backgroundColor: theme.colorScheme.secondaryContainer,
           ),
           const SizedBox(width: 8),
