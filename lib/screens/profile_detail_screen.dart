@@ -344,6 +344,11 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final name = widget.profile['full_name'] ?? 'Utilisateur';
+    final age = _calculateAge(widget.profile['date_of_birth']);
+    final city = widget.profile['city'] ?? '';
+    final bio = widget.profile['bio'] ?? '';
+    final interests = widget.profile['interests'] as List? ?? [];
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -360,6 +365,20 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
             onPressed: () => Navigator.pop(context),
           ),
         ),
+        actions: [
+          if (widget.isMatch)
+            Container(
+              margin: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.pink.withOpacity(0.9),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.favorite, color: Colors.white),
+                onPressed: () {},
+              ),
+            ),
+        ],
       ),
       body: Stack(
         children: [
@@ -459,6 +478,9 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
     final name = widget.profile['full_name'] ?? 'Utilisateur';
     final age = _calculateAge(widget.profile['date_of_birth']);
     final city = widget.profile['city'] ?? '';
+    final theme = Theme.of(context);
+    final bio = widget.profile['bio'] ?? '';
+    final interests = widget.profile['interests'] as List? ?? [];
 
     return Container(
       decoration: BoxDecoration(
@@ -467,25 +489,126 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
       ),
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '$name, $age',
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
+        child: // 📝 Informations
+        Container(
+          decoration: BoxDecoration(
+            color: theme.scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 24),
+
+              // Header avec nom/âge
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$name, $age',
+                            style: theme.textTheme.headlineMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          if (city.isNotEmpty)
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.location_on,
+                                  size: 16,
+                                  color: theme.colorScheme.primary,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(city, style: theme.textTheme.bodyMedium),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                    // Badge vérifié
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.verified, color: Colors.blue),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            if (city.isNotEmpty)
-              Row(
-                children: [
-                  const Icon(Icons.location_on, size: 16),
-                  const SizedBox(width: 4),
-                  Text(city),
-                ],
-              ),
-            const SizedBox(height: 100),
-          ],
+
+              const SizedBox(height: 24),
+
+              // Bio
+              if (bio.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'À propos',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(bio, style: theme.textTheme.bodyMedium),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
+
+              // Centres d'intérêt
+              if (interests.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Centres d\'intérêt',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: interests.map((interest) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              interest.toString(),
+                              style: TextStyle(
+                                color: theme.colorScheme.onPrimaryContainer,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+
+              const SizedBox(height: 100), // Espace pour les boutons
+            ],
+          ),
         ),
       ),
     );
@@ -519,10 +642,11 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
             if (_likeStatus != 'matched')
               IconButton(
                 onPressed: _isProcessing ? null : _sendFlash,
+                iconSize: 20,
                 icon: const Icon(Icons.flash_on, color: Colors.orange),
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.orange.withOpacity(0.2),
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(8),
                 ),
                 tooltip: 'Flash 24h',
               ),

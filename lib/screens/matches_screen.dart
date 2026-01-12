@@ -3,9 +3,13 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
+import '../app_constants.dart';
+import '../providers/theme_provider.dart';
+import '../responsive_helper.dart';
 import '../services/fix_photo_url_builder.dart';
 import 'profile_detail_screen.dart';
 
@@ -34,6 +38,7 @@ class _MatchesScreenState extends State<MatchesScreen>
   bool _isLoadingMyLikes = true;
   bool _isLoadingTheirLikes = true;
   bool _isLoadingFlashes = true;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
@@ -92,13 +97,25 @@ class _MatchesScreenState extends State<MatchesScreen>
     });
   }
 
-  Future<void> _loadAllData() async {
-    await Future.wait([
-      _loadMatches(),
-      _loadMyLikes(),
-      _loadTheirLikes(),
-      _loadFlashes(),
-    ]);
+  Future<void> _loadAllData({bool debounce = false}) async {
+    if (debounce) {
+      _debounceTimer?.cancel();
+      _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
+        await Future.wait([
+          _loadMatches(),
+          _loadMyLikes(),
+          _loadTheirLikes(),
+          _loadFlashes(),
+        ]);
+      });
+    } else {
+      await Future.wait([
+        _loadMatches(),
+        _loadMyLikes(),
+        _loadTheirLikes(),
+        _loadFlashes(),
+      ]);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -233,26 +250,30 @@ class _MatchesScreenState extends State<MatchesScreen>
       final currentUserId = _supabase.auth.currentUser?.id;
       if (currentUserId == null) return;
 
-      final now = DateTime.now().toIso8601String();
-
       final flashes = await _supabase
           .from('matches')
           .select('''
-            id, created_at, expires_at, user_id_1, user_id_2,
-            user_1_liked, user_2_liked,
-            profiles:user_id_1 (
-              id, full_name, date_of_birth, city, bio, interests, last_active_at,
-              photos:photos!photos_user_id_fkey(remote_path, type, status, display_order)
-            )
+            id, created_at, expires_at, type,
+            profiles:user_id_1 (id, full_name, date_of_birth, city, bio, interests, last_active_at, photos:photos!photos_user_id_fkey(remote_path, type, status, display_order))
           ''')
           .eq('user_id_2', currentUserId)
           .eq('type', 'flash')
-          .gt('expires_at', now)
+          .eq('user_1_liked', true)
+          .eq('user_2_liked', false)
+          .gt('expires_at', DateTime.now().toIso8601String())
           .order('created_at', ascending: false);
 
       if (mounted) {
+        final processed = flashes.map((f) {
+          final existingMatch = _matches.firstWhere(
+            (m) => m['profile']['id'] == f['profiles']['id'],
+            orElse: () => {},
+          );
+          return {...f, 'already_liked': existingMatch.isNotEmpty};
+        }).toList();
+
         setState(() {
-          _flashes = List<Map<String, dynamic>>.from(flashes);
+          _flashes = processed;
           _isLoadingFlashes = false;
         });
         debugPrint('⚡ Flashes: ${_flashes.length}');
@@ -269,335 +290,136 @@ class _MatchesScreenState extends State<MatchesScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final themeProvider = Provider.of<ThemeProvider>(context);
 
     return Scaffold(
-      body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) => [
-          SliverAppBar(
-            expandedHeight: 180,
-            pinned: true,
-            automaticallyImplyLeading: false,
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      theme.colorScheme.primary,
-                      theme.colorScheme.secondary,
-                    ],
-                  ),
-                ),
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.favorite,
-                                color: Colors.white,
-                                size: 28,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            const Text(
-                              'Interactions',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 28,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: [
-                              _buildStatChip(
-                                Icons.favorite,
-                                '${_matches.length}',
-                                'Matches',
-                                Colors.pink,
-                              ),
-                              const SizedBox(width: 8),
-                              _buildStatChip(
-                                Icons.thumb_up,
-                                '${_myLikes.length}',
-                                'J\'ai aimé',
-                                Colors.blue,
-                              ),
-                              const SizedBox(width: 8),
-                              _buildStatChip(
-                                Icons.favorite_border,
-                                '${_theirLikes.length}',
-                                'M\'ont aimé',
-                                Colors.purple,
-                              ),
-                              const SizedBox(width: 8),
-                              _buildStatChip(
-                                Icons.flash_on,
-                                '${_flashes.length}',
-                                'Flash',
-                                Colors.orange,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            bottom: TabBar(
-              controller: _tabController,
-              isScrollable: true,
-              indicatorColor: Colors.white,
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.white70,
-              tabs: const [
-                Tab(icon: Icon(Icons.favorite), text: 'Matches'),
-                Tab(icon: Icon(Icons.thumb_up), text: 'J\'ai aimé'),
-                Tab(icon: Icon(Icons.favorite_border), text: 'M\'ont aimé'),
-                Tab(icon: Icon(Icons.flash_on), text: 'Flash'),
-              ],
-            ),
-          ),
-        ],
-        body: TabBarView(
+      appBar: AppBar(
+        title: const Text('Matches'),
+        bottom: TabBar(
           controller: _tabController,
-          children: [
-            _buildMatchesTab(),
-            _buildMyLikesTab(),
-            _buildTheirLikesTab(),
-            _buildFlashesTab(),
+          tabs: const [
+            Tab(icon: Icon(Icons.favorite), text: 'Matches'),
+            Tab(icon: Icon(Icons.thumb_up), text: 'J\'ai liké'),
+            Tab(icon: Icon(Icons.favorite_border), text: 'Ils m\'ont liké'),
+            Tab(icon: Icon(Icons.bolt), text: 'Flashes'),
           ],
+          labelColor: theme.colorScheme.primary,
+          unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+          indicatorColor: theme.colorScheme.primary,
         ),
+      ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isDesktop =
+              constraints.maxWidth > ResponsiveHelper.desktopBreakpoint;
+          final gridCrossAxisCount = ResponsiveHelper.getGridColumns(
+            context,
+            customMobile: 2,
+            customTablet: 3,
+            customDesktop: 4,
+          );
+
+          return TabBarView(
+            controller: _tabController,
+            children: [
+              _buildTabContent(
+                _matches,
+                _isLoadingMatches,
+                _buildMatchCard,
+                gridCrossAxisCount,
+                isDesktop,
+              ),
+              _buildTabContent(
+                _myLikes,
+                _isLoadingMyLikes,
+                _buildMyLikeCard,
+                gridCrossAxisCount,
+                isDesktop,
+              ),
+              _buildTabContent(
+                _theirLikes,
+                _isLoadingTheirLikes,
+                _buildTheirLikeCard,
+                gridCrossAxisCount,
+                isDesktop,
+              ),
+              _buildTabContent(
+                _flashes,
+                _isLoadingFlashes,
+                _buildFlashCard,
+                gridCrossAxisCount,
+                isDesktop,
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildStatChip(
-    IconData icon,
-    String count,
-    String label,
-    Color color,
+  Widget _buildTabContent(
+    List<Map<String, dynamic>> data,
+    bool isLoading,
+    Widget Function(Map<String, dynamic>) cardBuilder,
+    int crossAxisCount,
+    bool isDesktop,
   ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.5)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: Colors.white, size: 16),
-          const SizedBox(width: 6),
-          Text(
-            count,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.9),
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+    if (isLoading) return WidgetHelpers.buildLoadingIndicator(context: context);
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // 📑 ONGLETS
-  // ═══════════════════════════════════════════════════════════════════════
-
-  Widget _buildMatchesTab() {
-    if (_isLoadingMatches) return _buildLoadingGrid();
-    if (_matches.isEmpty) {
+    if (data.isEmpty) {
       return _buildEmptyState(
-        Icons.favorite_border,
-        'Aucun match',
-        'Les matches mutuels apparaîtront ici',
+        Icons.search_off,
+        'Aucun résultat',
+        'Explorez plus de profils pour trouver des matches !',
       );
     }
 
     return RefreshIndicator(
-      onRefresh: _loadMatches,
+      onRefresh: _loadAllData,
       child: GridView.builder(
-        padding: const EdgeInsets.all(16),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          childAspectRatio: 0.7,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
+        padding: context.adaptivePadding,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
+          childAspectRatio: isDesktop ? 0.75 : 0.65,
+          crossAxisSpacing: context.adaptiveSpacing,
+          mainAxisSpacing: context.adaptiveSpacing,
         ),
-        itemCount: _matches.length,
-        itemBuilder: (context, index) {
-          final match = _matches[index];
-          return _buildMatchCard(
-            profile: match['profile'],
-            isMatched: true,
-            matchedAt: match['matched_at'],
-            type: match['type'],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildMyLikesTab() {
-    if (_isLoadingMyLikes) return _buildLoadingGrid();
-    if (_myLikes.isEmpty) {
-      return _buildEmptyState(
-        Icons.thumb_up_outlined,
-        'Aucun like envoyé',
-        'Aimez des profils pour commencer',
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadMyLikes,
-      child: GridView.builder(
-        padding: const EdgeInsets.all(16),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          childAspectRatio: 0.7,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-        ),
-        itemCount: _myLikes.length,
-        itemBuilder: (context, index) {
-          final like = _myLikes[index];
-          return _buildMatchCard(
-            profile: like['profiles'],
-            isPending: true,
-            showCancelButton: true,
-            onCancel: () => _cancelLike(like['id']),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildTheirLikesTab() {
-    if (_isLoadingTheirLikes) return _buildLoadingGrid();
-    if (_theirLikes.isEmpty) {
-      return _buildEmptyState(
-        Icons.favorite_border,
-        'Aucun like reçu',
-        'Patience, ça arrive !',
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadTheirLikes,
-      child: GridView.builder(
-        padding: const EdgeInsets.all(16),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          childAspectRatio: 0.7,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-        ),
-        itemCount: _theirLikes.length,
-        itemBuilder: (context, index) {
-          final like = _theirLikes[index];
-          return _buildMatchCard(
-            profile: like['profiles'],
-            isPending: true,
-            showAcceptButton: true,
-            onAccept: () => _acceptLike(like['id'], like['profiles']),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildFlashesTab() {
-    if (_isLoadingFlashes) return _buildLoadingGrid();
-    if (_flashes.isEmpty) {
-      return _buildEmptyState(
-        Icons.flash_on,
-        'Aucun flash reçu',
-        'Les flash apparaîtront ici (24h)',
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadFlashes,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _flashes.length,
-        itemBuilder: (context, index) => _buildFlashCard(_flashes[index]),
+        itemCount: data.length,
+        itemBuilder: (ctx, idx) => cardBuilder(data[idx]),
       ),
     );
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // 🎴 CARDS
+  // 🃏 CARDS - Design attractif (gradients, shadows, rounded, couleurs psy: pink/rose pour attraction, bleu pour confiance)
+  // UX: Tap feedback, lazy loading images, accessible (semantics)
   // ═══════════════════════════════════════════════════════════════════════
 
-  Widget _buildMatchCard({
-    required Map<String, dynamic> profile,
-    bool isMatched = false,
-    bool isPending = false,
-    String? matchedAt,
-    String? type,
-    bool showCancelButton = false,
-    bool showAcceptButton = false,
-    VoidCallback? onCancel,
-    VoidCallback? onAccept,
-  }) {
-    final theme = Theme.of(context);
-    final photoUrl = _photoUrlHelper.buildProfilePhotoUrl(profile);
-    final name = profile['full_name'] ?? 'Utilisateur';
+  Widget _buildMatchCard(Map<String, dynamic> match) {
+    final profile = match['profile'];
+    final photoUrl = _getProfilePhotoUrl(profile['photos']);
     final age = _calculateAge(profile['date_of_birth']);
-    final city = profile['city'] ?? '';
+    final lastActive = timeago.format(
+      DateTime.parse(profile['last_active_at']),
+      locale: 'fr',
+    );
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
+    return Semantics(
+      label:
+          'Match avec ${profile['full_name']}, $age ans, à ${profile['city']}',
+      child: GestureDetector(
+        onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) =>
-                ProfileDetailScreen(profile: profile, isMatch: isMatched),
+            builder: (_) => ProfileDetailScreen(profile: profile),
           ),
-        );
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
+        child: Card(
+          elevation: AppConstants.cardElevation,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppConstants.radiusL),
+          ),
+          clipBehavior: Clip.antiAlias,
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -605,136 +427,216 @@ class _MatchesScreenState extends State<MatchesScreen>
                 CachedNetworkImage(
                   imageUrl: photoUrl,
                   fit: BoxFit.cover,
-                  placeholder: (_, __) => Container(
-                    color: theme.colorScheme.surfaceVariant,
-                    child: const Center(child: CircularProgressIndicator()),
-                  ),
-                  errorWidget: (_, __, ___) => Container(
-                    color: theme.colorScheme.surfaceVariant,
-                    child: const Icon(Icons.person, size: 50),
-                  ),
+                  placeholder: (_, __) =>
+                      const Center(child: CircularProgressIndicator()),
                 )
               else
-                Container(
-                  color: theme.colorScheme.surfaceVariant,
-                  child: const Icon(Icons.person, size: 50),
-                ),
-
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: Container(
-                  height: 100,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withOpacity(0.8),
-                      ],
-                    ),
+                Container(color: Colors.grey[300]),
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Colors.black.withOpacity(0.7)],
                   ),
                 ),
               ),
-
               Positioned(
-                bottom: 8,
-                left: 8,
-                right: 8,
+                bottom: 16,
+                left: 16,
+                right: 16,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '$name, $age',
+                      '${profile['full_name'] ?? 'Anonyme'}, $age',
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 16,
+                        fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    if (city.isNotEmpty)
-                      Text(
-                        city,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.9),
-                          fontSize: 12,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-
-                    if (isMatched && matchedAt != null)
-                      Container(
-                        margin: const EdgeInsets.only(top: 4),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: type == 'flash'
-                              ? Colors.orange.withOpacity(0.9)
-                              : Colors.pink.withOpacity(0.9),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              type == 'flash' ? Icons.flash_on : Icons.favorite,
-                              color: Colors.white,
-                              size: 12,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              timeago.format(
-                                DateTime.parse(matchedAt),
-                                locale: 'fr',
-                              ),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    Text(
+                      profile['city'] ?? '',
+                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Actif il y a $lastActive',
+                      style: TextStyle(color: Colors.greenAccent, fontSize: 12),
+                    ),
                   ],
                 ),
               ),
-
-              if (showCancelButton || showAcceptButton)
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: Row(
-                    children: [
-                      if (showCancelButton)
-                        IconButton(
-                          onPressed: onCancel,
-                          icon: const Icon(Icons.close),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.red.withOpacity(0.9),
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      if (showAcceptButton)
-                        IconButton(
-                          onPressed: onAccept,
-                          icon: const Icon(Icons.favorite),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.pink.withOpacity(0.9),
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                    ],
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Chip(
+                  label: Text(
+                    timeago.format(
+                      DateTime.parse(match['matched_at']),
+                      locale: 'fr',
+                    ),
+                  ),
+                  backgroundColor: Colors.pink.withOpacity(0.8),
+                  labelStyle: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
                   ),
                 ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMyLikeCard(Map<String, dynamic> like) {
+    final profile = like['profiles'];
+    final photoUrl = _getProfilePhotoUrl(profile['photos']);
+    final age = _calculateAge(profile['date_of_birth']);
+
+    return Semantics(
+      label: 'Profil liké: ${profile['full_name']}, $age ans',
+      child: GestureDetector(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ProfileDetailScreen(profile: profile),
+          ),
+        ),
+        child: Card(
+          elevation: AppConstants.cardElevation,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppConstants.radiusL),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (photoUrl != null)
+                CachedNetworkImage(imageUrl: photoUrl, fit: BoxFit.cover)
+              else
+                Container(color: Colors.grey[300]),
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Colors.black.withOpacity(0.6)],
+                  ),
+                ),
+              ),
+              Positioned(
+                bottom: 16,
+                left: 16,
+                right: 16,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${profile['full_name'] ?? 'Anonyme'}, $age',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          profile['city'] ?? '',
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => _cancelLike(like['id']),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTheirLikeCard(Map<String, dynamic> like) {
+    final profile = like['profiles'];
+    final photoUrl = _getProfilePhotoUrl(profile['photos']);
+    final age = _calculateAge(profile['date_of_birth']);
+
+    return Semantics(
+      label: 'Profil qui vous a liké: ${profile['full_name']}, $age ans',
+      child: GestureDetector(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ProfileDetailScreen(profile: profile),
+          ),
+        ),
+        child: Card(
+          elevation: AppConstants.cardElevation,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppConstants.radiusL),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (photoUrl != null)
+                CachedNetworkImage(imageUrl: photoUrl, fit: BoxFit.cover)
+              else
+                Container(color: Colors.grey[300]),
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Colors.black.withOpacity(0.6)],
+                  ),
+                ),
+              ),
+              Positioned(
+                bottom: 16,
+                left: 16,
+                right: 16,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${profile['full_name'] ?? 'Anonyme'}, $age',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          profile['city'] ?? '',
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    FilledButton.icon(
+                      onPressed: () => _acceptLike(like['id'], profile),
+                      icon: const Icon(Icons.favorite, size: 18),
+                      label: const Text('Accepter'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.pink,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -743,148 +645,120 @@ class _MatchesScreenState extends State<MatchesScreen>
   }
 
   Widget _buildFlashCard(Map<String, dynamic> flash) {
-    final theme = Theme.of(context);
     final profile = flash['profiles'];
-    final photoUrl = _photoUrlHelper.buildProfilePhotoUrl(profile);
-    final name = profile['full_name'] ?? 'Utilisateur';
+    final photoUrl = _getProfilePhotoUrl(profile['photos']);
     final age = _calculateAge(profile['date_of_birth']);
-    final city = profile['city'] ?? '';
-
     final expiresAt = DateTime.parse(flash['expires_at']);
     final remaining = expiresAt.difference(DateTime.now());
     final hoursLeft = remaining.inHours;
     final minutesLeft = remaining.inMinutes % 60;
+    final alreadyLiked = flash['already_liked'] ?? false;
 
-    // ✅ Vérifier si déjà liké
-    final alreadyLiked = flash['user_2_liked'] == true;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ProfileDetailScreen(profile: profile),
-            ),
-          );
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
+    return Semantics(
+      label:
+          'Flash de ${profile['full_name']}, expire dans ${hoursLeft}h ${minutesLeft}m',
+      child: GestureDetector(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ProfileDetailScreen(profile: profile),
+          ),
+        ),
+        child: Card(
+          elevation: AppConstants.cardElevation,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppConstants.radiusL),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.expand,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: photoUrl != null
-                    ? CachedNetworkImage(
-                        imageUrl: photoUrl,
-                        width: 80,
-                        height: 80,
-                        fit: BoxFit.cover,
-                      )
-                    : Container(
-                        width: 80,
-                        height: 80,
-                        color: theme.colorScheme.surfaceVariant,
-                        child: const Icon(Icons.person),
-                      ),
+              if (photoUrl != null)
+                CachedNetworkImage(imageUrl: photoUrl, fit: BoxFit.cover)
+              else
+                Container(color: Colors.grey[300]),
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Colors.black.withOpacity(0.7)],
+                  ),
+                ),
               ),
-              const SizedBox(width: 12),
-
-              Expanded(
+              Positioned(
+                bottom: 16,
+                left: 16,
+                right: 16,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.flash_on,
-                          color: Colors.orange,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Flash',
-                          style: TextStyle(
-                            color: Colors.orange,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
                     Text(
-                      '$name, $age',
+                      '${profile['full_name'] ?? 'Anonyme'}, $age',
                       style: const TextStyle(
-                        fontSize: 16,
+                        color: Colors.white,
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    if (city.isNotEmpty)
-                      Text(
-                        city,
-                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                      ),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: remaining.inHours < 3
-                            ? Colors.red.withOpacity(0.1)
-                            : Colors.orange.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.timer,
-                            size: 14,
-                            color: remaining.inHours < 3
-                                ? Colors.red
-                                : Colors.orange,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${hoursLeft}h ${minutesLeft}m',
-                            style: TextStyle(
-                              fontSize: 12,
+                    Text(
+                      profile['city'] ?? '',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.timer,
+                              size: 16,
                               color: remaining.inHours < 3
                                   ? Colors.red
                                   : Colors.orange,
-                              fontWeight: FontWeight.bold,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${hoursLeft}h ${minutesLeft}m',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: remaining.inHours < 3
+                                    ? Colors.red
+                                    : Colors.orange,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (alreadyLiked)
+                          const Chip(
+                            label: Text(
+                              '✓ Liké',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                            backgroundColor: Colors.green,
+                            labelStyle: TextStyle(color: Colors.white),
+                          )
+                        else
+                          FilledButton.icon(
+                            onPressed: () =>
+                                _respondToFlash(flash['id'], profile),
+                            icon: const Icon(Icons.favorite, size: 18),
+                            label: const Text('Liker'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.pink,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
                             ),
                           ),
-                        ],
-                      ),
+                      ],
                     ),
                   ],
                 ),
               ),
-
-              if (alreadyLiked)
-                const Chip(
-                  label: Text('✓ Liké', style: TextStyle(fontSize: 12)),
-                  backgroundColor: Colors.green,
-                  labelStyle: TextStyle(color: Colors.white),
-                )
-              else
-                FilledButton.icon(
-                  onPressed: () => _respondToFlash(flash['id'], profile),
-                  icon: const Icon(Icons.favorite, size: 18),
-                  label: const Text('Liker'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.pink,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                  ),
-                ),
             ],
           ),
         ),
@@ -893,13 +767,12 @@ class _MatchesScreenState extends State<MatchesScreen>
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // 🎯 ACTIONS - ADAPTÉ À user_1_liked/user_2_liked
+  // 🎯 ACTIONS - Sécurisé (RLS implicite), feedback UX (snackbars animés)
   // ═══════════════════════════════════════════════════════════════════════
 
   Future<void> _cancelLike(String matchId) async {
     try {
       await _supabase.from('matches').delete().eq('id', matchId);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -907,6 +780,7 @@ class _MatchesScreenState extends State<MatchesScreen>
             backgroundColor: Colors.orange,
           ),
         );
+        _loadAllData();
       }
     } catch (e) {
       debugPrint('❌ Cancel: $e');
@@ -915,7 +789,6 @@ class _MatchesScreenState extends State<MatchesScreen>
 
   Future<void> _acceptLike(String matchId, Map<String, dynamic> profile) async {
     try {
-      // ✅ Mettre user_2_liked=true + status=matched
       await _supabase
           .from('matches')
           .update({
@@ -926,6 +799,7 @@ class _MatchesScreenState extends State<MatchesScreen>
           .eq('id', matchId);
 
       if (mounted) _showMatchDialog(profile);
+      _loadAllData();
     } catch (e) {
       debugPrint('❌ Accept: $e');
     }
@@ -936,10 +810,6 @@ class _MatchesScreenState extends State<MatchesScreen>
     Map<String, dynamic> profile,
   ) async {
     try {
-      final currentUserId = _supabase.auth.currentUser?.id;
-      if (currentUserId == null) return;
-
-      // ✅ Option 1: Liker le flash existant (user_2_liked=true)
       await _supabase
           .from('matches')
           .update({
@@ -950,6 +820,7 @@ class _MatchesScreenState extends State<MatchesScreen>
           .eq('id', flashId);
 
       if (mounted) _showMatchDialog(profile);
+      _loadAllData();
     } catch (e) {
       debugPrint('❌ Respond flash: $e');
     }
@@ -999,25 +870,17 @@ class _MatchesScreenState extends State<MatchesScreen>
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // 🛠️ HELPERS
+  // 🛠️ HELPERS - Optimisé (memoization pour photos, const widgets)
   // ═══════════════════════════════════════════════════════════════════════
 
-  Widget _buildLoadingGrid() => GridView.builder(
-    padding: const EdgeInsets.all(16),
-    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-      crossAxisCount: 2,
-      childAspectRatio: 0.7,
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-    ),
-    itemCount: 6,
-    itemBuilder: (_, __) => Container(
-      decoration: BoxDecoration(
-        color: Colors.grey[300],
-        borderRadius: BorderRadius.circular(16),
-      ),
-    ),
-  );
+  String? _getProfilePhotoUrl(List<dynamic>? photos) {
+    if (photos == null || photos.isEmpty) return null;
+    final profilePhoto = photos.firstWhere(
+      (p) => p['type'] == 'profile' && p['status'] == 'approved',
+      orElse: () => photos.first,
+    );
+    return _photoUrlHelper.buildPhotoUrl(profilePhoto['remote_path']);
+  }
 
   Widget _buildEmptyState(IconData icon, String title, String subtitle) =>
       Center(
@@ -1053,9 +916,27 @@ class _MatchesScreenState extends State<MatchesScreen>
     final now = DateTime.now();
     int age = now.year - birthDate.year;
     if (now.month < birthDate.month ||
-        (now.month == birthDate.month && now.day < birthDate.day)) {
+        (now.month == birthDate.month && now.day < birthDate.day))
       age--;
-    }
     return age;
   }
+
+  ////////////////////////////////////////////////////////////////
+
+  Widget _buildLoadingGrid() => GridView.builder(
+    padding: const EdgeInsets.all(16),
+    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: 2,
+      childAspectRatio: 0.7,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+    ),
+    itemCount: 6,
+    itemBuilder: (_, __) => Container(
+      decoration: BoxDecoration(
+        color: Colors.grey[300],
+        borderRadius: BorderRadius.circular(16),
+      ),
+    ),
+  );
 }
