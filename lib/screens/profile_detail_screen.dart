@@ -1,12 +1,10 @@
-// lib/screens/profile_detail_screen.dart
+// lib/screens/profile_detail_screen.dart - ✅ ADAPTÉ À VOTRE SCHÉMA
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/fix_photo_url_builder.dart';
 
-/// 🎯 Écran détail profil avec animations et actions
-/// Design: Carousel photos + info scrollable + actions flottantes
 class ProfileDetailScreen extends StatefulWidget {
   final Map<String, dynamic> profile;
   final bool isMatch;
@@ -25,29 +23,29 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
     with SingleTickerProviderStateMixin {
   final _supabase = Supabase.instance.client;
   final _pageController = PageController();
-  late final PhotoUrlHelper _photoUrlHelper; // ✅ AJOUTER
+  late final PhotoUrlHelper _photoUrlHelper;
   late AnimationController _animController;
-  late Animation<double> _scaleAnimation;
 
   int _currentPhotoIndex = 0;
   List<String> _photoUrls = [];
   bool _isProcessing = false;
 
+  // ✅ ÉTAT DYNAMIQUE DU LIKE - ADAPTÉ À VOTRE SCHÉMA
+  String? _likeStatus; // 'i_liked' | 'they_liked' | 'matched' | null
+  String? _matchId;
+  bool _amIUser1 = false; // Pour savoir si je suis user_id_1 ou user_id_2
+  bool _isLoadingStatus = true;
+
   @override
   void initState() {
     super.initState();
-    _photoUrlHelper = PhotoUrlHelper(_supabase); // ✅ INITIALISER
+    _photoUrlHelper = PhotoUrlHelper(_supabase);
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    _scaleAnimation = Tween<double>(
-      begin: 0.8,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
-
     _loadPhotos();
-    _animController.forward();
+    _loadLikeStatus();
   }
 
   @override
@@ -58,47 +56,299 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
   }
 
   void _loadPhotos() {
-    debugPrint('════════════════════════════════════════');
-    debugPrint('📸 ProfileDetailScreen._loadPhotos()');
-
-    // ✅ Utiliser le helper pour construire les URLs
     final urls = _photoUrlHelper.buildGalleryPhotoUrls(widget.profile);
-
-    // ✅ Si pas de photos galerie, essayer de prendre la photo de profil
     if (urls.isEmpty) {
       final profileUrl = _photoUrlHelper.buildProfilePhotoUrl(widget.profile);
-      if (profileUrl != null) {
-        debugPrint('   → No gallery photos, using profile photo');
-        setState(() => _photoUrls = [profileUrl]);
-      } else {
-        debugPrint('   → No photos found at all');
-        setState(() => _photoUrls = []);
-      }
+      setState(() => _photoUrls = profileUrl != null ? [profileUrl] : []);
     } else {
-      debugPrint('   → Found ${urls.length} gallery photos');
       setState(() => _photoUrls = urls);
     }
-
-    for (var i = 0; i < _photoUrls.length; i++) {
-      debugPrint('   [$i] ${_photoUrls[i]}');
-    }
-    debugPrint('════════════════════════════════════════');
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // ✅ CHARGER L'ÉTAT DU LIKE - ADAPTÉ user_1_liked/user_2_liked
+  // ═══════════════════════════════════════════════════════════════════════
+  Future<void> _loadLikeStatus() async {
+    setState(() => _isLoadingStatus = true);
+
+    try {
+      final currentUserId = _supabase.auth.currentUser?.id;
+      if (currentUserId == null) return;
+
+      final targetUserId = widget.profile['id'];
+
+      // ✅ Chercher match/like type='like' (pas flash)
+      // Il peut y avoir 2 cas:
+      // 1. Je suis user_id_1, target est user_id_2
+      // 2. Target est user_id_1, je suis user_id_2
+
+      final match = await _supabase
+          .from('matches')
+          .select(
+            'id, user_id_1, user_id_2, user_1_liked, user_2_liked, status',
+          )
+          .eq('type', 'like')
+          .or(
+            'and(user_id_1.eq.$currentUserId,user_id_2.eq.$targetUserId),and(user_id_1.eq.$targetUserId,user_id_2.eq.$currentUserId)',
+          )
+          .maybeSingle();
+
+      if (match != null) {
+        _matchId = match['id'];
+        _amIUser1 = match['user_id_1'] == currentUserId;
+
+        final user1Liked = match['user_1_liked'] == true;
+        final user2Liked = match['user_2_liked'] == true;
+
+        if (user1Liked && user2Liked) {
+          _likeStatus = 'matched';
+        } else if (_amIUser1 && user1Liked) {
+          _likeStatus = 'i_liked';
+        } else if (!_amIUser1 && user2Liked) {
+          _likeStatus = 'i_liked';
+        } else if (!_amIUser1 && user1Liked) {
+          _likeStatus = 'they_liked';
+        } else if (_amIUser1 && user2Liked) {
+          _likeStatus = 'they_liked';
+        }
+      } else {
+        _likeStatus = null;
+      }
+
+      debugPrint(
+        '💡 Status: $_likeStatus | MatchId: $_matchId | AmIUser1: $_amIUser1',
+      );
+    } catch (e) {
+      debugPrint('❌ Load status: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingStatus = false);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ✅ ENVOYER/ANNULER LIKE - ADAPTÉ
+  // ═══════════════════════════════════════════════════════════════════════
+  Future<void> _toggleLike() async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+
+    try {
+      final currentUserId = _supabase.auth.currentUser?.id;
+      if (currentUserId == null) return;
+
+      final targetUserId = widget.profile['id'];
+
+      if (_likeStatus == null) {
+        // ✅ ENVOYER LIKE
+        await _sendLike(currentUserId, targetUserId);
+      } else if (_likeStatus == 'i_liked') {
+        // ✅ ANNULER MON LIKE
+        await _cancelLike();
+      } else if (_likeStatus == 'they_liked') {
+        // ✅ ACCEPTER LEUR LIKE = MATCH
+        await _acceptLike();
+      }
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _sendLike(String currentUserId, String targetUserId) async {
+    // ✅ Vérifier si l'autre m'a déjà liké
+    final reciprocal = await _supabase
+        .from('matches')
+        .select('id, user_id_1, user_2_liked')
+        .eq('user_id_1', targetUserId)
+        .eq('user_id_2', currentUserId)
+        .eq('type', 'like')
+        .eq('user_1_liked', true)
+        .maybeSingle();
+
+    if (reciprocal != null) {
+      // ✅ MATCH IMMÉDIAT
+      await _supabase
+          .from('matches')
+          .update({
+            'user_2_liked': true,
+            'status': 'matched',
+            'matched_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', reciprocal['id']);
+
+      setState(() {
+        _likeStatus = 'matched';
+        _matchId = reciprocal['id'];
+        _amIUser1 = false;
+      });
+
+      if (mounted) _showMatchDialog();
+    } else {
+      // ✅ LIKE SIMPLE (je deviens user_id_1)
+      final newMatch = await _supabase
+          .from('matches')
+          .insert({
+            'user_id_1': currentUserId,
+            'user_id_2': targetUserId,
+            'user_1_liked': true,
+            'user_2_liked': false,
+            'type': 'like',
+            'status': 'pending',
+            'created_at': DateTime.now().toIso8601String(),
+          })
+          .select('id')
+          .single();
+
+      setState(() {
+        _likeStatus = 'i_liked';
+        _matchId = newMatch['id'];
+        _amIUser1 = true;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('👍 Like envoyé !'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _cancelLike() async {
+    if (_matchId == null) return;
+
+    try {
+      // ✅ CORRECTION : Supprimer directement au lieu de mettre à false
+      await _supabase.from('matches').delete().eq('id', _matchId!);
+
+      setState(() {
+        _likeStatus = null;
+        _matchId = null;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Like annulé'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Cancel like error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _acceptLike() async {
+    if (_matchId == null) return;
+
+    // ✅ Mettre mon like à true
+    if (_amIUser1) {
+      await _supabase
+          .from('matches')
+          .update({
+            'user_1_liked': true,
+            'status': 'matched',
+            'matched_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', _matchId!);
+    } else {
+      await _supabase
+          .from('matches')
+          .update({
+            'user_2_liked': true,
+            'status': 'matched',
+            'matched_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', _matchId!);
+    }
+
+    setState(() => _likeStatus = 'matched');
+
+    if (mounted) _showMatchDialog();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ✅ ENVOYER FLASH (24h)
+  // ═══════════════════════════════════════════════════════════════════════
+  Future<void> _sendFlash() async {
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
+
+    try {
+      final currentUserId = _supabase.auth.currentUser?.id;
+      if (currentUserId == null) return;
+
+      final targetUserId = widget.profile['id'];
+
+      // ✅ Vérifier si flash déjà envoyé (dernières 24h)
+      final existing = await _supabase
+          .from('matches')
+          .select('id')
+          .eq('user_id_1', currentUserId)
+          .eq('user_id_2', targetUserId)
+          .eq('type', 'flash')
+          .gt('expires_at', DateTime.now().toIso8601String())
+          .maybeSingle();
+
+      if (existing != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('⚡ Flash déjà envoyé !'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      // ✅ Créer nouveau flash
+      await _supabase.from('matches').insert({
+        'user_id_1': currentUserId,
+        'user_id_2': targetUserId,
+        'user_1_liked': true,
+        'user_2_liked': false,
+        'type': 'flash',
+        'status': 'pending',
+        'created_at': DateTime.now().toIso8601String(),
+        'expires_at': DateTime.now()
+            .add(const Duration(hours: 24))
+            .toIso8601String(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚡ Flash envoyé (24h) !'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Send flash: $e');
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 🎨 UI
+  // ═══════════════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final name = widget.profile['full_name'] ?? 'Utilisateur';
-    final age = _calculateAge(widget.profile['date_of_birth']);
-    final city = widget.profile['city'] ?? '';
-    final bio = widget.profile['bio'] ?? '';
-    final interests = widget.profile['interests'] as List? ?? [];
 
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        elevation: 0,
         leading: Container(
           margin: const EdgeInsets.all(8),
           decoration: BoxDecoration(
@@ -110,172 +360,21 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
             onPressed: () => Navigator.pop(context),
           ),
         ),
-        actions: [
-          if (widget.isMatch)
-            Container(
-              margin: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.pink.withOpacity(0.9),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.favorite, color: Colors.white),
-                onPressed: () {},
-              ),
-            ),
-        ],
       ),
       body: Stack(
         children: [
-          // Contenu scrollable
           CustomScrollView(
             slivers: [
-              // 📸 Carousel photos
               SliverAppBar(
                 expandedHeight: 500,
-                pinned: false,
                 automaticallyImplyLeading: false,
                 flexibleSpace: FlexibleSpaceBar(
                   background: _buildPhotoCarousel(theme),
                 ),
               ),
-
-              // 📝 Informations
-              SliverToBoxAdapter(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: theme.scaffoldBackgroundColor,
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(24),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 24),
-
-                      // Header avec nom/âge
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '$name, $age',
-                                    style: theme.textTheme.headlineMedium
-                                        ?.copyWith(fontWeight: FontWeight.bold),
-                                  ),
-                                  if (city.isNotEmpty)
-                                    Row(
-                                      children: [
-                                        Icon(
-                                          Icons.location_on,
-                                          size: 16,
-                                          color: theme.colorScheme.primary,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          city,
-                                          style: theme.textTheme.bodyMedium,
-                                        ),
-                                      ],
-                                    ),
-                                ],
-                              ),
-                            ),
-                            // Badge vérifié
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.withOpacity(0.1),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.verified,
-                                color: Colors.blue,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 24),
-
-                      // Bio
-                      if (bio.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'À propos',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(bio, style: theme.textTheme.bodyMedium),
-                              const SizedBox(height: 24),
-                            ],
-                          ),
-                        ),
-
-                      // Centres d'intérêt
-                      if (interests.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Centres d\'intérêt',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: interests.map((interest) {
-                                  return Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: theme.colorScheme.primaryContainer,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      interest.toString(),
-                                      style: TextStyle(
-                                        color: theme
-                                            .colorScheme
-                                            .onPrimaryContainer,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      const SizedBox(height: 100), // Espace pour les boutons
-                    ],
-                  ),
-                ),
-              ),
+              SliverToBoxAdapter(child: _buildProfileInfo(theme)),
             ],
           ),
-
-          // 🎯 Boutons d'action flottants
           Positioned(
             bottom: 0,
             left: 0,
@@ -291,44 +390,29 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
     if (_photoUrls.isEmpty) {
       return Container(
         color: theme.colorScheme.surfaceVariant,
-        child: Center(
-          child: Icon(
-            Icons.person,
-            size: 100,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
+        child: const Icon(Icons.person, size: 100),
       );
     }
 
     return Stack(
       children: [
-        // Photos
         PageView.builder(
           controller: _pageController,
-          onPageChanged: (index) {
-            setState(() => _currentPhotoIndex = index);
-          },
+          onPageChanged: (index) => setState(() => _currentPhotoIndex = index),
           itemCount: _photoUrls.length,
-          itemBuilder: (context, index) {
-            return CachedNetworkImage(
-              imageUrl: _photoUrls[index],
-              fit: BoxFit.cover,
-              placeholder: (_, __) =>
-                  Container(color: theme.colorScheme.surfaceVariant),
-              errorWidget: (_, __, ___) => Container(
-                color: theme.colorScheme.errorContainer,
-                child: Icon(
-                  Icons.broken_image,
-                  size: 60,
-                  color: theme.colorScheme.error,
-                ),
-              ),
-            );
-          },
+          itemBuilder: (context, index) => CachedNetworkImage(
+            imageUrl: _photoUrls[index],
+            fit: BoxFit.cover,
+            placeholder: (_, __) => Container(
+              color: theme.colorScheme.surfaceVariant,
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+            errorWidget: (_, __, ___) => Container(
+              color: theme.colorScheme.surfaceVariant,
+              child: const Icon(Icons.person, size: 100),
+            ),
+          ),
         ),
-
-        // Gradient overlay
         Positioned(
           bottom: 0,
           left: 0,
@@ -344,8 +428,6 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
             ),
           ),
         ),
-
-        // Dots indicator
         if (_photoUrls.length > 1)
           Positioned(
             top: 16,
@@ -355,12 +437,12 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(
                 _photoUrls.length,
-                (index) => Container(
+                (i) => Container(
                   margin: const EdgeInsets.symmetric(horizontal: 4),
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: _currentPhotoIndex == index
+                    color: _currentPhotoIndex == i
                         ? Colors.white
                         : Colors.white.withOpacity(0.4),
                     borderRadius: BorderRadius.circular(2),
@@ -373,16 +455,59 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
     );
   }
 
+  Widget _buildProfileInfo(ThemeData theme) {
+    final name = widget.profile['full_name'] ?? 'Utilisateur';
+    final age = _calculateAge(widget.profile['date_of_birth']);
+    final city = widget.profile['city'] ?? '';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.scaffoldBackgroundColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$name, $age',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (city.isNotEmpty)
+              Row(
+                children: [
+                  const Icon(Icons.location_on, size: 16),
+                  const SizedBox(width: 4),
+                  Text(city),
+                ],
+              ),
+            const SizedBox(height: 100),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ✅ BOUTONS DYNAMIQUES - ADAPTÉ
+  // ═══════════════════════════════════════════════════════════════════════
   Widget _buildActionButtons(ThemeData theme) {
+    if (_isLoadingStatus) {
+      return Container(
+        color: theme.scaffoldBackgroundColor,
+        padding: const EdgeInsets.all(24),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: theme.scaffoldBackgroundColor,
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 12,
-            offset: const Offset(0, -4),
-          ),
+          BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 12),
         ],
       ),
       padding: const EdgeInsets.all(24),
@@ -390,192 +515,119 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
         top: false,
         child: Row(
           children: [
-            // Bouton passer
-            Expanded(
-              child: OutlinedButton(
-                onPressed: _isProcessing ? null : () => Navigator.pop(context),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  side: BorderSide(color: theme.colorScheme.outline),
+            // ⚡ BOUTON FLASH
+            if (_likeStatus != 'matched')
+              IconButton(
+                onPressed: _isProcessing ? null : _sendFlash,
+                icon: const Icon(Icons.flash_on, color: Colors.orange),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.orange.withOpacity(0.2),
+                  padding: const EdgeInsets.all(16),
                 ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.close),
-                    SizedBox(width: 8),
-                    Text('Passer'),
-                  ],
-                ),
+                tooltip: 'Flash 24h',
               ),
-            ),
 
-            const SizedBox(width: 16),
+            const SizedBox(width: 12),
 
-            // Bouton like
-            Expanded(
-              flex: 2,
-              child: FilledButton(
-                onPressed: _isProcessing ? null : _sendLike,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: theme.colorScheme.primary,
-                ),
-                child: _isProcessing
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.favorite),
-                          SizedBox(width: 8),
-                          Text('J\'aime'),
-                        ],
-                      ),
-              ),
-            ),
-
-            const SizedBox(width: 16),
-
-            // Bouton message (si match)
-            if (widget.isMatch)
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.green,
-                  shape: BoxShape.circle,
-                ),
-                child: IconButton(
-                  onPressed: () {
-                    // TODO: Ouvrir conversation
-                  },
-                  icon: const Icon(Icons.chat, color: Colors.white),
-                  tooltip: 'Message',
-                ),
-              ),
+            // ✅ BOUTON PRINCIPAL DYNAMIQUE
+            Expanded(child: _buildMainButton(theme)),
           ],
         ),
       ),
     );
   }
 
-  Future<void> _sendLike() async {
-    setState(() => _isProcessing = true);
+  Widget _buildMainButton(ThemeData theme) {
+    if (_isProcessing) {
+      return FilledButton(
+        onPressed: null,
+        child: const SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+        ),
+      );
+    }
 
-    try {
-      final currentUserId = _supabase.auth.currentUser?.id;
-      if (currentUserId == null) return;
-
-      // Check si like existe déjà
-      final existing = await _supabase
-          .from('matches')
-          .select()
-          .or(
-            'and(user_id_1.eq.$currentUserId,user_id_2.eq.${widget.profile['id']}),and(user_id_2.eq.$currentUserId,user_id_1.eq.${widget.profile['id']})',
-          )
-          .maybeSingle();
-
-      if (existing != null) {
-        // Like existe déjà, vérifier si match
-        if (existing['status'] == 'pending') {
-          // C'est un match !
-          await _supabase
-              .from('matches')
-              .update({
-                'status': 'matched',
-                'matched_at': DateTime.now().toIso8601String(),
-              })
-              .eq('id', existing['id']);
-
-          if (mounted) {
-            _showMatchDialog();
-          }
-        }
-      } else {
-        // Créer nouveau like
-        await _supabase.from('matches').insert({
-          'user_id_1': currentUserId,
-          'user_id_2': widget.profile['id'],
-          'status': 'pending',
-          'created_at': DateTime.now().toIso8601String(),
-        });
-
-        if (mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('👍 Like envoyé !'),
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('❌ Send like error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+    switch (_likeStatus) {
+      case 'matched':
+        return FilledButton.icon(
+          onPressed: () {
+            // TODO: Ouvrir chat
+          },
+          icon: const Icon(Icons.chat),
+          label: const Text('Message'),
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.green,
+            minimumSize: const Size(double.infinity, 50),
+          ),
         );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isProcessing = false);
-      }
+
+      case 'i_liked':
+        return OutlinedButton.icon(
+          onPressed: _toggleLike,
+          icon: const Icon(Icons.close),
+          label: const Text('Annuler'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.orange,
+            minimumSize: const Size(double.infinity, 50),
+          ),
+        );
+
+      case 'they_liked':
+        return FilledButton.icon(
+          onPressed: _toggleLike,
+          icon: const Icon(Icons.favorite),
+          label: const Text('Accepter'),
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.pink,
+            minimumSize: const Size(double.infinity, 50),
+          ),
+        );
+
+      default: // null
+        return FilledButton.icon(
+          onPressed: _toggleLike,
+          icon: const Icon(Icons.favorite),
+          label: const Text('J\'aime'),
+          style: FilledButton.styleFrom(
+            backgroundColor: theme.colorScheme.primary,
+            minimumSize: const Size(double.infinity, 50),
+          ),
+        );
     }
   }
 
   void _showMatchDialog() {
     showDialog(
       context: context,
-      barrierDismissible: false,
-      builder: (ctx) => ScaleTransition(
-        scale: _scaleAnimation,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('🎉', style: TextStyle(fontSize: 80)),
-              const SizedBox(height: 16),
-              Text(
-                'C\'est un Match !',
-                style: Theme.of(ctx).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('🎉', style: TextStyle(fontSize: 80)),
+            const SizedBox(height: 16),
+            const Text(
+              'C\'est un Match !',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(ctx),
+              icon: const Icon(Icons.chat),
+              label: const Text('Envoyer message'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.pink,
+                minimumSize: const Size(double.infinity, 48),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Vous vous êtes plu mutuellement',
-                style: Theme.of(ctx).textTheme.bodyMedium,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  Navigator.pop(context);
-                  // TODO: Ouvrir conversation
-                },
-                icon: const Icon(Icons.chat),
-                label: const Text('Envoyer un message'),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  Navigator.pop(context);
-                },
-                child: const Text('Plus tard'),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Plus tard'),
+            ),
+          ],
         ),
       ),
     );
@@ -583,18 +635,14 @@ class _ProfileDetailScreenState extends State<ProfileDetailScreen>
 
   int _calculateAge(String? birthDateStr) {
     if (birthDateStr == null) return 0;
-
     final birthDate = DateTime.tryParse(birthDateStr);
     if (birthDate == null) return 0;
-
     final now = DateTime.now();
     int age = now.year - birthDate.year;
-
     if (now.month < birthDate.month ||
         (now.month == birthDate.month && now.day < birthDate.day)) {
       age--;
     }
-
     return age;
   }
 }

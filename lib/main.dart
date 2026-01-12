@@ -5,6 +5,7 @@ import 'package:intl/date_symbol_data_local.dart'; // ✅ AJOUTER
 import 'package:profilum/services/services.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:timeago/timeago.dart' as timeago;
 
 import 'app_router.dart';
 import 'providers/auth_provider.dart';
@@ -23,9 +24,14 @@ void main() async {
   await Supabase.initialize(
     url: 'https://uuosdbxqegnnwaojqxec.supabase.co',
     anonKey: 'sb_publishable_lv4LuXnpZBxLZMw_j-rg_Q_omNBoE5A',
+    realtimeClientOptions: const RealtimeClientOptions(
+      eventsPerSecond: 10, // Limite les events pour éviter spam
+    ),
   );
 
   final objectBox = await ObjectBoxService.create();
+  // Configure timeago en français
+  timeago.setLocaleMessages('fr', timeago.FrMessages());
 
   runApp(ProfilumApp(objectBox: objectBox));
 }
