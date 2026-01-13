@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:objectbox/objectbox.dart';
-
+import 'package:objectbox/objectbox.dart';
 import 'models/social_link_model.dart';
 
 // ============================================
@@ -106,8 +106,8 @@ class UserEntity {
     this.needsSync = false,
     String? pendingActionsJson,
   }) : interestsJson = interestsJson ?? '[]',
-       socialLinksJson = socialLinksJson ?? '[]',
-       pendingActionsJson = pendingActionsJson ?? '[]';
+        socialLinksJson = socialLinksJson ?? '[]',
+        pendingActionsJson = pendingActionsJson ?? '[]';
 
   // ✅ GETTER: Interests
   List<String> get interests {

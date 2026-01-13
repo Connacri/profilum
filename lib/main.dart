@@ -86,6 +86,7 @@ class ProfilumApp extends StatelessWidget {
             context.read<ImageService>(),
           ),
         ),
+
       ],
       child: Consumer2<ThemeProvider, AuthProvider>(
         builder: (context, themeProvider, authProvider, _) {
