@@ -1,5 +1,7 @@
 // lib/screens/profile_page_carousel.dart - ✅ CORRIGÉ
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -78,17 +80,17 @@ class _ProfilePageState extends State<ProfilePage> {
       // ✅ Détecter si c'est son propre profil
       _isOwnProfile = currentUserId == targetUserId;
 
-      debugPrint('════════════════════════════════════════');
-      debugPrint('📸 LOADING PHOTOS');
-      debugPrint('   Current User: $currentUserId');
-      debugPrint('   Target User: $targetUserId');
-      debugPrint('   Is Own Profile: $_isOwnProfile');
-      debugPrint('   Role: $currentUserRole');
-      debugPrint('════════════════════════════════════════');
+      // debugPrint('════════════════════════════════════════');
+      // debugPrint('📸 LOADING PHOTOS');
+      // debugPrint('   Current User: $currentUserId');
+      // debugPrint('   Target User: $targetUserId');
+      // debugPrint('   Is Own Profile: $_isOwnProfile');
+      // debugPrint('   Role: $currentUserRole');
+      // debugPrint('════════════════════════════════════════');
 
       // 📦 Charger depuis ObjectBox
       final photos = await objectBox.getUserPhotos(targetUserId);
-      debugPrint('📦 ObjectBox returned ${photos.length} photos');
+      // debugPrint('📦 ObjectBox returned ${photos.length} photos');
 
       // 🎯 Filtrage intelligent selon le contexte
       List<dynamic> filteredPhotos;
@@ -291,15 +293,19 @@ class _ProfilePageState extends State<ProfilePage> {
                           children: [
                             // ✅ Opacité SEULEMENT si pending ET propriétaire
                             Opacity(
-                              opacity:
-                                  (_profilePhoto?.isPending == true &&
-                                      _isOwnProfile)
-                                  ? 0.5
-                                  : 1.0,
+                              opacity: (_profilePhoto?.isPending == true && _isOwnProfile) ? 0.5 : 1.0,
                               child: CircleAvatar(
+                                // ✅ AJOUTER UNE KEY UNIQUE POUR FORCER LE REBUILD
+                                key: ValueKey(_profilePhoto?.url ?? 'no-photo'),
                                 radius: 60,
                                 backgroundImage: _profilePhoto != null
-                                    ? NetworkImage(_profilePhoto!.url)
+                                    ? CachedNetworkImageProvider(
+                                  _profilePhoto!.url,
+                                  // ✅ DÉSACTIVER LE CACHE POUR LES PHOTOS PENDING
+                                  cacheKey: _profilePhoto!.isPending
+                                      ? '${_profilePhoto!.url}_${DateTime.now().millisecondsSinceEpoch}'
+                                      : null,
+                                )
                                     : null,
                                 child: _profilePhoto == null
                                     ? const Icon(Icons.person, size: 60)
@@ -428,6 +434,16 @@ class _ProfilePageState extends State<ProfilePage> {
                             ],
                           ),
                         ),
+
+                      Chip(
+                        label: Text(user.gender.toString().capitalize()),
+                        backgroundColor: theme
+                            .colorScheme
+                            .primaryContainer
+                            .withOpacity(0.5),
+                      ),
+                      SizedBox(height: 8,),
+                      Text(user.email)
                     ],
                   ),
                 ),
@@ -487,32 +503,50 @@ class _ProfilePageState extends State<ProfilePage> {
                                         ),
                                       ),
                                       child: Opacity(
-                                        // ✅ Opacité SEULEMENT si pending ET propriétaire
-                                        opacity:
-                                            (photo.isPending && _isOwnProfile)
-                                            ? 0.5
-                                            : 1.0,
+                                        opacity: (photo.isPending && _isOwnProfile) ? 0.5 : 1.0,
                                         child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(
-                                            6,
-                                          ),
-                                          child: Image.network(
-                                            photo.url,
+                                          borderRadius: BorderRadius.circular(6),
+                                          child: CachedNetworkImage(
+                                            // ✅ KEY UNIQUE
+                                            key: ValueKey(
+                                              photo.isPending
+                                                  ? '${photo.url}_thumb_${DateTime.now().millisecondsSinceEpoch}'
+                                                  : '${photo.url}_thumb',
+                                            ),
+                                            imageUrl: photo.url,
                                             fit: BoxFit.cover,
-                                            errorBuilder: (_, __, ___) =>
-                                                Container(
-                                                  color: Colors.grey[300],
-                                                  child: const Icon(
-                                                    Icons.broken_image,
-                                                    color: Colors.grey,
+                                            // ✅ CACHE KEY
+                                            cacheKey: photo.isPending
+                                                ? '${photo.url}_thumb_nocache_${DateTime.now().millisecondsSinceEpoch}'
+                                                : null,
+                                            placeholder: (context, url) => Container(
+                                              color: Colors.grey[200],
+                                              child: const Center(
+                                                child: SizedBox(
+                                                  width: 20,
+                                                  height: 20,
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 2,
                                                   ),
                                                 ),
+                                              ),
+                                            ),
+                                            errorWidget: (_, __, ___) => Container(
+                                              color: Colors.grey[300],
+                                              child: const Icon(
+                                                Icons.broken_image,
+                                                color: Colors.grey,
+                                                size: 24,
+                                              ),
+                                            ),
+                                            memCacheWidth: 200,
+                                            memCacheHeight: 200,
                                           ),
                                         ),
                                       ),
                                     ),
 
-                                    // ✅ Badge "EN MODÉRATION" SEULEMENT si pending ET propriétaire
+                                    // ✅ Badge "EN MODÉRATION" sur miniature
                                     if (photo.isPending && _isOwnProfile)
                                       Positioned(
                                         top: 4,
@@ -524,9 +558,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                           ),
                                           decoration: BoxDecoration(
                                             color: Colors.orange,
-                                            borderRadius: BorderRadius.circular(
-                                              4,
-                                            ),
+                                            borderRadius: BorderRadius.circular(4),
                                           ),
                                           child: const Text(
                                             'MOD',
@@ -796,7 +828,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildPhotoCarousel() {
     return Stack(
       children: [
-        // Photos
+        // Photos avec cache key unique
         PageView.builder(
           controller: _carouselController,
           onPageChanged: (index) {
@@ -814,20 +846,57 @@ class _ProfilePageState extends State<ProfilePage> {
             return Stack(
               fit: StackFit.expand,
               children: [
-                // ✅ Image avec opacité SEULEMENT si pending ET propriétaire
+                // ✅ Image avec cache key unique pour forcer refresh
                 Opacity(
                   opacity: (photo.isPending && _isOwnProfile) ? 0.5 : 1.0,
-                  child: Image.network(
-                    photo.url,
+                  child: CachedNetworkImage(
+                    // ✅ KEY UNIQUE : Utilise URL + timestamp si pending
+                    key: ValueKey(
+                      photo.isPending
+                          ? '${photo.url}_${DateTime.now().millisecondsSinceEpoch}'
+                          : photo.url,
+                    ),
+                    imageUrl: photo.url,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+                    // ✅ CACHE KEY : Désactive le cache si pending
+                    cacheKey: photo.isPending
+                        ? '${photo.url}_nocache_${DateTime.now().millisecondsSinceEpoch}'
+                        : null,
+                    // ✅ Placeholder pendant le chargement
+                    placeholder: (context, url) => Container(
                       color: Colors.grey[300],
-                      child: const Icon(
-                        Icons.broken_image,
-                        size: 80,
-                        color: Colors.grey,
+                      child: const Center(
+                        child: CircularProgressIndicator(),
                       ),
                     ),
+                    // ✅ Gestion d'erreur
+                    errorWidget: (context, url, error) {
+                      debugPrint('❌ Error loading carousel image: $url');
+                      debugPrint('   Error: $error');
+                      return Container(
+                        color: Colors.grey[300],
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(
+                              Icons.broken_image,
+                              size: 80,
+                              color: Colors.grey,
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Image non disponible',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    // ✅ Options de mise en cache
+                    memCacheWidth: 1920,
+                    memCacheHeight: 1920,
+                    maxWidthDiskCache: 1920,
+                    maxHeightDiskCache: 1920,
                   ),
                 ),
 
@@ -909,7 +978,7 @@ class _ProfilePageState extends State<ProfilePage> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(
                 _galleryPhotos.length,
-                (index) => Container(
+                    (index) => Container(
                   margin: const EdgeInsets.symmetric(horizontal: 4),
                   width: 8,
                   height: 8,

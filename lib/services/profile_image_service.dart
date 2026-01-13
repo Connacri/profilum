@@ -127,7 +127,7 @@ class ProfileImageService {
     // ✅ Sans cache (pour updates rapides)
     return CircleAvatar(
       radius: radius,
-      backgroundImage: NetworkImage(imageUrl),
+      backgroundImage: CachedNetworkImageProvider(imageUrl),//NetworkImage(imageUrl),
       onBackgroundImageError: (exception, stackTrace) {
         debugPrint('❌ Failed to load image: $imageUrl - $exception');
       },
