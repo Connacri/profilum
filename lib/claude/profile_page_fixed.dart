@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../helper_utilities.dart';
-import '../providers/auth_provider.dart';
 
 import '../widgets/account_deletion_dialog.dart';
 import 'auth_provider_optimized.dart';

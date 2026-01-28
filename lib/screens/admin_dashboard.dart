@@ -8,7 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../claude/auth_provider_optimized.dart';
 import '../helper_utilities.dart';
-import '../providers/auth_provider.dart';
+
 import '../responsive_helper.dart';
 import '../services/profile_image_service.dart';
 import '../widgets/account_deletion_dialog.dart';

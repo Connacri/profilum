@@ -1,18 +1,24 @@
 // lib/main.dart - ✅ VERSION COMPLÈTE MIGRÉE SANS OBJECTBOX
 
 import 'package:flutter/material.dart';
+import 'package:profilum/tami/admin_auth_provider_complete.dart';
 import 'package:provider/provider.dart';
 
 import 'auth/auth_screen.dart';
 import 'claude/auth_provider_optimized.dart';
 import 'claude/profile_completion_screen_example.dart';
 import 'claude/service_locator.dart';
-import 'providers/auth_provider.dart';
+
 import 'providers/theme_provider.dart';
 
 import 'screens/home_screen.dart';
-import 'screens/profile_completion_screen.dart';
 
+
+import 'tami/admin_documents_provider_complete.dart';
+import 'tami/document_provider_fixed.dart';
+import 'tami/guest_mode_provider.dart';
+import 'tami/ocr_provider.dart';
+import 'tami/splash_screen.dart';
 import 'widgets/auth_rate_limiter.dart';
 
 void main() async {
@@ -58,18 +64,36 @@ class MyApp extends StatelessWidget {
         // ═══════════════════════════════════════════════════════════════
         // 🔐 Auth Provider - ✅ SANS ObjectBoxService
         // ═══════════════════════════════════════════════════════════════
-        ChangeNotifierProxyProvider<AuthRateLimiter, AuthProvider>(
-          create: (context) => AuthProvider(
-            services.supabase,
-            rateLimiter: context.read<AuthRateLimiter>(),
-          ),
-          update: (context, rateLimiter, previous) =>
-          previous ??
-              AuthProvider(
-                services.supabase,
-                rateLimiter: rateLimiter,
-              ),
+        // ═══════════════════════════════════════════════════════════════
+        // 👔 ADMIN AUTH PROVIDER
+        // ═══════════════════════════════════════════════════════════════
+        ChangeNotifierProvider(
+          create: (_) => AdminAuthProvider(),
         ),
+
+        // ═══════════════════════════════════════════════════════════════
+        // 👤 GUEST MODE PROVIDER (nouveau)
+        // ═══════════════════════════════════════════════════════════════
+        ChangeNotifierProvider(
+          create: (_) => GuestModeProvider(),
+        ),
+
+        // ═══════════════════════════════════════════════════════════════
+        // 📄 DOCUMENT PROVIDER (avec SupabaseClient)
+        // ═══════════════════════════════════════════════════════════════
+        ChangeNotifierProvider(
+          create: (_) => DocumentProvider(services.supabase),
+        ),
+
+        // ═══════════════════════════════════════════════════════════════
+        // 📚 ADMIN DOCUMENTS PROVIDER
+        // ═══════════════════════════════════════════════════════════════
+        ChangeNotifierProvider(
+          create: (_) => AdminDocumentsProvider(),
+        ),
+
+
+
       ],
       child: Consumer2<ThemeProvider, AuthProvider>(
         builder: (context, themeProvider, authProvider, _) {
@@ -90,7 +114,7 @@ class MyApp extends StatelessWidget {
             themeMode: themeProvider.themeMode,
 
             // ✅ Navigation selon AuthStatus
-            home: _buildHomeScreen(authProvider),
+            home: const SplashScreen(),//_buildHomeScreen(authProvider),
           );
         },
       ),

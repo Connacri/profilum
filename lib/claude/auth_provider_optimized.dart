@@ -40,9 +40,9 @@ class AuthProvider extends ChangeNotifier {
   static const String _keyLastReminder = 'last_completion_reminder';
 
   AuthProvider(
-    this._supabase, {
-    AuthRateLimiter? rateLimiter,
-  }) : _rateLimiter = rateLimiter {
+      this._supabase, {
+        AuthRateLimiter? rateLimiter,
+      }) : _rateLimiter = rateLimiter {
     _initAuth();
   }
 
@@ -55,7 +55,7 @@ class AuthProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   bool get isAuthenticated =>
       _status == AuthStatus.authenticated ||
-      _status == AuthStatus.profileIncomplete;
+          _status == AuthStatus.profileIncomplete;
   bool get canAccessApp => isAuthenticated;
 
   // ═══════════════════════════════════════════════════════════════════
@@ -276,10 +276,10 @@ class AuthProvider extends ChangeNotifier {
 
     // Profil incomplet : vérifier skip
     final hasSkipped = await hasSkippedCompletion();
-    _status = hasSkipped 
-        ? AuthStatus.authenticated 
+    _status = hasSkipped
+        ? AuthStatus.authenticated
         : AuthStatus.profileIncomplete;
-    
+
     notifyListeners();
   }
 
@@ -333,7 +333,7 @@ class AuthProvider extends ChangeNotifier {
       debugPrint('═══════════════════════════════════════════════════');
     } catch (e) {
       debugPrint('❌ SIGNOUT ERROR: $e');
-      
+
       // Force reset même en cas d'erreur
       _currentUser = null;
       _status = AuthStatus.unauthenticated;
@@ -361,7 +361,7 @@ class AuthProvider extends ChangeNotifier {
 
       // 2. Supprimer des tables
       debugPrint('🗑️ [2/4] Deleting from tables...');
-      
+
       await _safeDelete('notifications', 'user_id', userId);
       await _safeDelete('matches', 'user_id_1', userId, orField: 'user_id_2');
       await _safeDelete('preferences', 'user_id', userId);
@@ -406,7 +406,7 @@ class AuthProvider extends ChangeNotifier {
     } catch (e, stack) {
       debugPrint('❌ DELETE ACCOUNT ERROR: $e');
       debugPrint('Stack: $stack');
-      
+
       _errorMessage = 'Erreur de suppression: $e';
       notifyListeners();
       return false;
@@ -414,11 +414,11 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _safeDelete(
-    String table,
-    String field,
-    String value, {
-    String? orField,
-  }) async {
+      String table,
+      String field,
+      String value, {
+        String? orField,
+      }) async {
     try {
       if (orField != null) {
         await _supabase
@@ -460,7 +460,7 @@ class AuthProvider extends ChangeNotifier {
 
   Future<bool> hasSkippedCompletion() async {
     if (_currentUser == null) return false;
-    
+
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool('${_keyProfileSkipped}_${_currentUser!.userId}') ?? false;
   }
@@ -537,11 +537,11 @@ class AuthProvider extends ChangeNotifier {
 
   void _startSessionManagement() {
     _stopSessionManagement();
-    
+
     _sessionTimer = Timer.periodic(_refreshBuffer, (_) async {
       await _validateAndRefreshSession();
     });
-    
+
     _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) async {
       await _updateLastActive();
     });
@@ -565,7 +565,7 @@ class AuthProvider extends ChangeNotifier {
       final expiresAt = DateTime.fromMillisecondsSinceEpoch(
         (session.expiresAt ?? 0) * 1000,
       );
-      
+
       if (DateTime.now().isAfter(expiresAt.subtract(_refreshBuffer))) {
         await _supabase.auth.refreshSession();
       }
@@ -576,7 +576,7 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _updateLastActive() async {
     if (_currentUser == null) return;
-    
+
     try {
       await _supabase
           .from('profiles')
@@ -622,7 +622,7 @@ class AuthProvider extends ChangeNotifier {
 
       if (hasSession) {
         final session = _supabase.auth.currentSession;
-        
+
         if (session != null) {
           await _loadUserFromLocal(session.user.id);
           await _validateAndRefreshSession();
@@ -646,7 +646,7 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _loadUserFromLocal(String userId) async {
     final cachedData = services.cache.getUserData(userId);
-    
+
     if (cachedData != null) {
       _currentUser = UserModel.fromSupabase(cachedData);
       await _determineAuthStatus();
@@ -689,7 +689,7 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _handleTokenRefresh(Session session) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('access_token', session.accessToken);
-    
+
     final expiresAt = session.expiresAt ??
         DateTime.now().add(_sessionDuration).millisecondsSinceEpoch ~/ 1000;
     await prefs.setInt('token_expires_at', expiresAt);

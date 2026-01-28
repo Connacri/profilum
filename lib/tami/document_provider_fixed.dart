@@ -1,6 +1,8 @@
-// ==================== DOCUMENT PROVIDER UNIFIÉ ====================
+// ==================== DOCUMENT PROVIDER ADAPTÉ ====================
+// lib/providers/document_provider.dart
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'models_unified.dart';
@@ -8,21 +10,23 @@ import 'ocr_provider.dart';
 
 enum ScanState { idle, processing, success, error }
 
+/// Provider pour la gestion des documents scannés
+/// S'intègre avec votre AuthProvider existant
 class DocumentProvider extends ChangeNotifier {
-  final _supabase = Supabase.instance.client;
-  final _ocrProvider = OCRProvider();
+  final SupabaseClient _supabase;
+  final OCRProvider _ocrProvider = OCRProvider();
 
   ScanState _state = ScanState.idle;
   String? _errorMessage;
   ScannedDocument? _currentDocument;
   List<ScannedDocument> _userDocuments = [];
 
+  DocumentProvider(this._supabase);
+
+  // Getters
   ScanState get state => _state;
-
   String? get errorMessage => _errorMessage;
-
   ScannedDocument? get currentDocument => _currentDocument;
-
   List<ScannedDocument> get userDocuments => _userDocuments;
 
   // Setter pour permettre la modification depuis l'extérieur
@@ -31,12 +35,17 @@ class DocumentProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Charger les documents de l'utilisateur
+  /// Charger les documents de l'utilisateur connecté
   Future<void> loadUserDocuments() async {
     final userId = _supabase.auth.currentUser?.id;
-    if (userId == null) return;
+    if (userId == null) {
+      debugPrint('❌ Aucun utilisateur connecté');
+      return;
+    }
 
     try {
+      debugPrint('🔍 Chargement des documents pour user: $userId');
+
       final response = await _supabase
           .from('scanned_documents')
           .select()
@@ -47,8 +56,10 @@ class DocumentProvider extends ChangeNotifier {
           .map((json) => ScannedDocument.fromSupabaseJson(json))
           .toList();
 
+      debugPrint('✅ ${_userDocuments.length} documents chargés');
       notifyListeners();
     } catch (e) {
+      debugPrint('❌ Erreur chargement documents: $e');
       _errorMessage = 'Erreur chargement: $e';
       notifyListeners();
     }
@@ -64,15 +75,20 @@ class DocumentProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      debugPrint('🔍 Scan document type: ${documentType.label}');
+
       // OCR avec provider optimisé
       final extractedText = await _ocrProvider.processImage(imageBytes);
 
       if (extractedText == null || extractedText.isEmpty) {
-        throw Exception('Aucun texte détecté');
+        throw Exception('Aucun texte détecté dans l\'image');
       }
+
+      debugPrint('✅ Texte extrait (${extractedText.length} caractères)');
 
       // Calculer score de confiance
       final confidence = _ocrProvider.analyzeConfidence(extractedText);
+      debugPrint('📊 Score de confiance: ${(confidence * 100).toInt()}%');
 
       // Parser selon le type
       final userId = _supabase.auth.currentUser!.id;
@@ -91,12 +107,15 @@ class DocumentProvider extends ChangeNotifier {
       }
 
       if (doc == null) {
-        throw Exception('Impossible d\'extraire les données');
+        throw Exception('Impossible d\'extraire les données du document');
       }
+
+      debugPrint('✅ Document parsé: ${doc.fullName}');
 
       // Vérifier si existe déjà
       final existingDoc = await _checkExistingDocument(doc);
       if (existingDoc != null) {
+        debugPrint('⚠️ Document existant trouvé: ${existingDoc.id}');
         _currentDocument = existingDoc;
         _state = ScanState.success;
         notifyListeners();
@@ -106,14 +125,16 @@ class DocumentProvider extends ChangeNotifier {
       _currentDocument = doc;
       _state = ScanState.success;
       notifyListeners();
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('❌ Erreur scan: $e');
+      debugPrint('Stack: $stack');
       _errorMessage = 'Erreur OCR: $e';
       _state = ScanState.error;
       notifyListeners();
     }
   }
 
-  /// Vérifier si document existe
+  /// Vérifier si document existe déjà
   Future<ScannedDocument?> _checkExistingDocument(ScannedDocument doc) async {
     try {
       String? number;
@@ -145,11 +166,12 @@ class DocumentProvider extends ChangeNotifier {
 
       return null;
     } catch (e) {
+      debugPrint('⚠️ Erreur vérification doublon: $e');
       return null;
     }
   }
 
-  /// Parser Chifa (AMÉLIORÉ avec regex plus robustes)
+  /// Parser Chifa (AMÉLIORÉ avec regex robustes)
   ChifaCard? _parseChifa(String text, String userId, double confidence) {
     final lines = text.split('\n').where((l) => l.trim().isNotEmpty).toList();
 
@@ -254,8 +276,10 @@ class DocumentProvider extends ChangeNotifier {
     }
 
     // Lieu de naissance: chercher "Né à" ou "Née à"
-    final birthPlaceRegex =
-        RegExp(r'N[ée]+\s+[àa]\s+([A-Z\s]+)', caseSensitive: false);
+    final birthPlaceRegex = RegExp(
+      r'N[ée]+\s+[àa]\s+([A-Z\s]+)',
+      caseSensitive: false,
+    );
     final birthMatch = birthPlaceRegex.firstMatch(text);
     if (birthMatch != null) {
       birthPlace = birthMatch.group(1)?.trim() ?? '';
@@ -328,27 +352,37 @@ class DocumentProvider extends ChangeNotifier {
 
   /// Sauvegarder le document
   Future<bool> saveCurrentDocument() async {
-    if (_currentDocument == null) return false;
+    if (_currentDocument == null) {
+      debugPrint('❌ Aucun document à sauvegarder');
+      return false;
+    }
 
     try {
+      debugPrint('💾 Sauvegarde document: ${_currentDocument!.fullName}');
+
       final existing = await _checkExistingDocument(_currentDocument!);
 
       if (existing != null) {
         // Mise à jour
+        debugPrint('✏️ Mise à jour document existant: ${existing.id}');
         await _supabase
             .from('scanned_documents')
             .update(_currentDocument!.toSupabaseJson())
             .eq('id', existing.id!);
       } else {
         // Création
+        debugPrint('✨ Création nouveau document');
         await _supabase
             .from('scanned_documents')
             .insert(_currentDocument!.toSupabaseJson());
       }
 
       await loadUserDocuments();
+      debugPrint('✅ Document sauvegardé avec succès');
       return true;
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('❌ Erreur sauvegarde: $e');
+      debugPrint('Stack: $stack');
       _errorMessage = 'Erreur sauvegarde: $e';
       notifyListeners();
       return false;
@@ -358,16 +392,25 @@ class DocumentProvider extends ChangeNotifier {
   /// Supprimer un document
   Future<bool> deleteDocument(String documentId) async {
     try {
-      await _supabase.from('scanned_documents').delete().eq('id', documentId);
+      debugPrint('🗑️ Suppression document: $documentId');
+
+      await _supabase
+          .from('scanned_documents')
+          .delete()
+          .eq('id', documentId);
+
       await loadUserDocuments();
+      debugPrint('✅ Document supprimé');
       return true;
     } catch (e) {
+      debugPrint('❌ Erreur suppression: $e');
       _errorMessage = 'Erreur suppression: $e';
       notifyListeners();
       return false;
     }
   }
 
+  /// Réinitialiser l'état
   void resetState() {
     _state = ScanState.idle;
     _errorMessage = null;

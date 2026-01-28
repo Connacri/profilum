@@ -9,7 +9,7 @@ import '../claude/auth_provider_optimized.dart';
 import '../claude/profile_completion_provider_optimized.dart';
 import '../claude/profile_completion_screen_example.dart';
 import '../claude/profile_page_fixed.dart';
-import '../providers/auth_provider.dart';
+
 import '../providers/profile_completion_provider.dart';
 import '../responsive_helper.dart';
 import '../services/fix_photo_url_builder.dart';

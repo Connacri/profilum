@@ -1,4 +1,5 @@
-// ==================== MODÈLES UNIFIÉS (VERSION UNIQUE) ====================
+// ==================== MODÈLES UNIFIÉS POUR DOCUMENTS SCANNÉS ====================
+// lib/models/scanned_document.dart
 
 enum DocumentType {
   chifa('Carte Chifa'),
@@ -17,7 +18,7 @@ enum ChifaRank {
   const ChifaRank(this.label);
 }
 
-// ==================== CLASSE ABSTRAITE ====================
+// ==================== CLASSE ABSTRAITE BASE ====================
 
 abstract class ScannedDocument {
   final String? id;
