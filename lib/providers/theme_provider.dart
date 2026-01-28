@@ -1,4 +1,5 @@
-// lib/core/providers/theme_provider.dart
+// lib/providers/theme_provider.dart - ✅ VERSION COMPATIBLE UserModel
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -29,10 +30,9 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ✅ FIX: Version simplifiée - ne notifie que si ça change vraiment
+  /// ✅ Version simplifiée - accepte null
   void setUserGender(String? gender) {
-    // ✅ Accepter null
-    if (_userGender == gender) return; // ✅ Évite les rebuilds inutiles
+    if (_userGender == gender) return; // Évite rebuilds inutiles
 
     _userGender = gender;
     debugPrint('🎨 Theme gender updated: ${gender ?? "reset to default"}');
@@ -68,6 +68,10 @@ class ThemeProvider extends ChangeNotifier {
         return _getDefaultTheme(true);
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 🎨 THÈMES SPÉCIFIQUES
+  // ═══════════════════════════════════════════════════════════════════
 
   ThemeData _getMaleTheme(bool isDark) {
     final colorScheme = ColorScheme.fromSeed(
@@ -123,6 +127,10 @@ class ThemeProvider extends ChangeNotifier {
     );
     return _buildTheme(colorScheme, isDark);
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 🏗️ THEME BUILDER
+  // ═══════════════════════════════════════════════════════════════════
 
   ThemeData _buildTheme(ColorScheme colorScheme, bool isDark) {
     return ThemeData(

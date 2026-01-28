@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../claude/auth_provider_optimized.dart';
 import '../helper_utilities.dart';
 import '../providers/auth_provider.dart';
 import '../responsive_helper.dart';

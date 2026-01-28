@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'auth/auth_screen.dart';
+import 'claude/auth_provider_optimized.dart';
+import 'claude/profile_completion_screen_example.dart';
 import 'providers/auth_provider.dart';
 import 'screens/admin_dashboard.dart';
 import 'screens/home_screen.dart';

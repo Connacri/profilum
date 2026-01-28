@@ -1,0 +1,312 @@
+# ==================== PUBSPEC.YAML ====================
+name: ehs_document_scanner
+description: Application de scan de documents pour EHS Dr Medjbeur Tami
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # État et architecture
+  provider: ^6.1.1
+
+  # Backend Supabase
+  supabase_flutter: ^2.0.0
+
+  # Stockage local
+  shared_preferences: ^2.2.2
+
+  # Cryptographie
+  crypto: ^3.0.3
+
+  # OCR et traitement d'image
+  google_mlkit_text_recognition: ^0.11.0
+  image_picker: ^1.0.4
+
+  # Internationalisation
+  intl: ^0.18.1
+
+  # Export PDF/CSV
+  pdf: ^3.10.7
+  printing: ^5.11.1
+  csv: ^5.1.1
+
+  # UI/Icons
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+# ==================== CONFIGURATION ANDROID ====================
+# android/app/src/main/AndroidManifest.xml
+# Ajouter ces permissions :
+
+# <uses-permission android:name="android.permission.INTERNET"/>
+# <uses-permission android:name="android.permission.CAMERA"/>
+# <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+# <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+
+# ==================== CONFIGURATION IOS ====================
+# ios/Runner/Info.plist
+# Ajouter ces clés :
+
+# <key>NSCameraUsageDescription</key>
+# <string>Cette application nécessite l'accès à la caméra pour scanner les documents</string>
+# <key>NSPhotoLibraryUsageDescription</key>
+# <string>Cette application nécessite l'accès à la galerie pour sélectionner des images</string>
+
+# ==================== SUPABASE SQL SCHEMA ====================
+# Exécuter dans l'éditeur SQL de Supabase :
+
+-- Activer UUID
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Table des administrateurs
+CREATE TABLE admin_users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  full_name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('superAdmin', 'admin', 'readOnly')),
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Super admin par défaut
+-- Email: superadmin@ehs.dz
+-- Mot de passe: SuperAdmin2025
+INSERT INTO admin_users (email, password_hash, full_name, role)
+VALUES (
+  'superadmin@ehs.dz',
+  '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918',
+  'Super Administrateur',
+  'superAdmin'
+);
+
+-- Table des documents scannés
+CREATE TABLE scanned_documents (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  document_type TEXT NOT NULL CHECK (document_type IN ('chifa', 'cni', 'passport')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  
+  -- Champs communs
+  full_name TEXT NOT NULL,
+  phone_number TEXT NOT NULL,
+  birth_date DATE,
+  confidence_score NUMERIC(3,2) DEFAULT 0.0 CHECK (confidence_score >= 0 AND confidence_score <= 1),
+  is_manually_verified BOOLEAN DEFAULT false,
+  
+  -- Champs Chifa
+  chifa_number TEXT,
+  chifa_organism TEXT,
+  chifa_expiry_date DATE,
+  chifa_rank TEXT CHECK (chifa_rank IN ('assure', 'ayantDroit')),
+  
+  -- Champs CNI
+  cni_number TEXT,
+  cni_birth_place TEXT,
+  cni_issue_date DATE,
+  cni_expiry_date DATE,
+  cni_mrz_line1 TEXT,
+  cni_mrz_line2 TEXT,
+  
+  -- Champs Passeport
+  passport_number TEXT,
+  passport_issue_place TEXT,
+  passport_issue_date DATE,
+  passport_expiry_date DATE,
+  passport_mrz_line1 TEXT,
+  passport_mrz_line2 TEXT,
+
+  -- Contraintes de validation
+  CONSTRAINT chifa_fields_check CHECK (
+    (document_type = 'chifa' AND chifa_number IS NOT NULL AND chifa_organism IS NOT NULL) OR
+    document_type != 'chifa'
+  ),
+  CONSTRAINT cni_fields_check CHECK (
+    (document_type = 'cni' AND cni_number IS NOT NULL AND cni_birth_place IS NOT NULL) OR
+    document_type != 'cni'
+  ),
+  CONSTRAINT passport_fields_check CHECK (
+    (document_type = 'passport' AND passport_number IS NOT NULL AND passport_issue_place IS NOT NULL) OR
+    document_type != 'passport'
+  )
+);
+
+-- Index pour performances
+CREATE INDEX idx_documents_user_id ON scanned_documents(user_id);
+CREATE INDEX idx_documents_type ON scanned_documents(document_type);
+CREATE INDEX idx_documents_created_at ON scanned_documents(created_at DESC);
+CREATE INDEX idx_documents_phone ON scanned_documents(phone_number);
+CREATE INDEX idx_documents_chifa_number ON scanned_documents(chifa_number) WHERE document_type = 'chifa';
+CREATE INDEX idx_documents_cni_number ON scanned_documents(cni_number) WHERE document_type = 'cni';
+CREATE INDEX idx_documents_passport_number ON scanned_documents(passport_number) WHERE document_type = 'passport';
+
+-- Trigger pour updated_at
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_documents_updated_at
+BEFORE UPDATE ON scanned_documents
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_admin_users_updated_at
+BEFORE UPDATE ON admin_users
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+-- Row Level Security (RLS)
+ALTER TABLE scanned_documents ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Les utilisateurs peuvent gérer leurs propres documents
+CREATE POLICY "Users can manage their own documents"
+ON scanned_documents
+FOR ALL
+TO authenticated
+USING (auth.uid() = user_id)
+WITH CHECK (auth.uid() = user_id);
+
+-- Policy: Les admins peuvent tout voir (lecture seule pour admin/readOnly)
+CREATE POLICY "Admins can view all documents"
+ON scanned_documents
+FOR SELECT
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM admin_users
+    WHERE id = auth.uid() 
+    AND is_active = true
+  )
+);
+
+-- Policy: Super Admin et Admin peuvent tout modifier/supprimer
+CREATE POLICY "Super Admin and Admin can modify all"
+ON scanned_documents
+FOR ALL
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM admin_users
+    WHERE id = auth.uid() 
+    AND is_active = true
+    AND role IN ('superAdmin', 'admin')
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM admin_users
+    WHERE id = auth.uid() 
+    AND is_active = true
+    AND role IN ('superAdmin', 'admin')
+  )
+);
+
+-- Vue pour statistiques (accessible aux admins)
+CREATE OR REPLACE VIEW document_statistics AS
+SELECT 
+  document_type,
+  COUNT(*) as total_count,
+  COUNT(DISTINCT user_id) as unique_users,
+  AVG(confidence_score) as avg_confidence,
+  COUNT(*) FILTER (WHERE is_manually_verified = true) as verified_count,
+  COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) as today_count,
+  COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '7 days') as week_count,
+  COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '30 days') as month_count
+FROM scanned_documents
+GROUP BY document_type;
+
+-- ==================== STRUCTURE DES FICHIERS ====================
+# lib/
+# ├── main.dart
+# ├── models/
+# │   └── scanned_document.dart (vos modèles)
+# ├── providers/
+# │   ├── auth_provider.dart
+# │   ├── admin_auth_provider.dart
+# │   ├── document_provider.dart
+# │   └── admin_documents_provider.dart
+# ├── screens/
+# │   ├── splash_screen.dart
+# │   ├── auth_screen.dart
+# │   ├── home_screen.dart
+# │   ├── scan_screen.dart
+# │   ├── processing_screen.dart
+# │   ├── document_form_screen.dart
+# │   ├── admin_login_screen.dart
+# │   └── simple_admin_dashboard.dart
+# └── utils/
+#     └── constants.dart (optionnel)
+
+# ==================== COMMANDES DE DÉPLOIEMENT ====================
+# 1. Installer les dépendances
+# flutter pub get
+
+# 2. Générer les fichiers nécessaires
+# flutter pub run build_runner build --delete-conflicting-outputs
+
+# 3. Tester sur émulateur/device
+# flutter run
+
+# 4. Build Android APK
+# flutter build apk --release
+
+# 5. Build Android App Bundle
+# flutter build appbundle --release
+
+# 6. Build iOS
+# flutter build ios --release
+
+# ==================== VARIABLES D'ENVIRONNEMENT ====================
+# Créer un fichier .env à la racine du projet :
+# SUPABASE_URL=https://votre-projet.supabase.co
+# SUPABASE_ANON_KEY=votre_clé_anonyme
+
+# Ne pas commiter ce fichier dans git !
+# Ajouter .env dans .gitignore
+
+# ==================== NOTES IMPORTANTES ====================
+# 1. Remplacer les URLs Supabase dans main.dart
+# 2. Configurer l'authentification dans Supabase Dashboard
+# 3. Activer Row Level Security (RLS)
+# 4. Configurer les permissions Android/iOS
+# 5. Tester OCR avec différents types de documents
+# 6. Optimiser les regex d'extraction selon vos documents algériens
+# 7. Ajouter gestion d'erreurs réseau
+# 8. Implémenter cache local si nécessaire
+# 9. Tester sur devices réels (caméra nécessaire)
+# 10. Configurer Firebase pour notifications (optionnel)
+
+# ==================== AMÉLIORATIONS FUTURES ====================
+# - Mode hors-ligne avec synchronisation
+# - Export des documents en PDF individuels
+# - Partage de documents par email/WhatsApp
+# - Historique des modifications
+# - Sauvegarde cloud automatique
+# - Multi-langue (Arabe, Français, Anglais)
+# - Statistiques détaillées pour utilisateurs
+# - Validation avancée des numéros de documents
+# - OCR multi-pages pour passeports
+# - Compression intelligente des images
+# - Dark mode
+# - Authentification biométrique
+# - Scan de codes-barres/QR codes
+# - Templates d'export personnalisables
+# - API REST pour intégrations externes

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../claude/auth_provider_optimized.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/account_deletion_dialog.dart';
 import 'moderation_detail_screen.dart';

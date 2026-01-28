@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../claude/photo_item.dart';
 import '../models/photo_item.dart';
 
 class PhotoGridItem extends StatelessWidget {
