@@ -5,6 +5,7 @@ import 'app_router.dart'; // ✅ Import du router
 import 'auth/auth_screen.dart';
 import 'claude/auth_provider_optimized.dart';
 import 'claude/service_locator.dart';
+import 'providers/photos_provider.dart';
 import 'providers/theme_provider.dart';
 import 'tami/admin_auth_provider_complete.dart';
 import 'tami/admin_documents_provider_complete.dart';
@@ -35,11 +36,15 @@ void main() async {
   runApp(const MyApp());
 }
 
+
+
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final userId = services.supabaseService.currentUserId;
     return MultiProvider(
       providers: [
         // ═══════════════════════════════════════════════════════════════
@@ -79,6 +84,8 @@ class MyApp extends StatelessWidget {
           create: (_) => DocumentProvider(services.supabase),
         ),
         ChangeNotifierProvider(create: (_) => AdminDocumentsProvider()),
+    ChangeNotifierProvider(
+    create: (_) => PhotosProvider(userId: userId!),)
       ],
       child: Consumer2<ThemeProvider, AuthProvider>(
         builder: (context, themeProvider, authProvider, _) {
@@ -222,6 +229,7 @@ class _LoadingSplash extends StatelessWidget {
     );
   }
 }
+
 
 class EmailVerificationScreen extends StatelessWidget {
   const EmailVerificationScreen({super.key});

@@ -22,17 +22,10 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final userId = services.supabaseService.currentUserId;
 
-    if (userId == null) {
-      return const Scaffold(
-        body: Center(child: Text('Utilisateur non connecté')),
-      );
-    }
 
-    return ChangeNotifierProvider(
-      create: (_) => PhotosProvider(userId: userId),
-      child: Scaffold(
+
+    return  Scaffold(
         appBar: AppBar(
           title: const Text('Complétez votre profil'),
           actions: [
@@ -115,8 +108,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
             );
           },
         ),
-      ),
-    );
+      ) ;
   }
 
   // ═══════════════════════════════════════════════════════════════════
