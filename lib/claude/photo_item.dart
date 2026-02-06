@@ -3,7 +3,7 @@
 
 import 'dart:io';
 
-enum PhotoSource {
+enum PhotoSourceremote {
   remote, // Déjà sur Supabase
   local, // Nouvelle photo locale (pas encore uploadée)
 }
@@ -12,7 +12,7 @@ enum PhotoSource {
 /// Utilisée pour le drag & drop, affichage grilles, etc.
 class PhotoItem {
   final String id;
-  final PhotoSource source;
+  final PhotoSourceremote source;
   final String? remotePath; // PATH uniquement (ex: "user_123/gallery/uuid.jpg")
   final File? localFile; // Fichier local
   final int displayOrder;
@@ -56,7 +56,7 @@ class PhotoItem {
   }) {
     return PhotoItem(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      source: PhotoSource.local,
+      source: PhotoSourceremote.local,
       localFile: file,
       type: type,
       displayOrder: displayOrder,
@@ -69,7 +69,7 @@ class PhotoItem {
   factory PhotoItem.fromSupabase(Map<String, dynamic> data) {
     return PhotoItem(
       id: data['id'] as String,
-      source: PhotoSource.remote,
+      source: PhotoSourceremote.remote,
       remotePath: data['remote_path'] as String?,
       type: data['type'] as String? ?? 'gallery',
       displayOrder: data['display_order'] as int? ?? 0,
@@ -109,16 +109,16 @@ class PhotoItem {
 
   /// Obtenir le chemin d'affichage (File ou String)
   dynamic get displayPath =>
-      source == PhotoSource.remote ? remotePath : localFile;
+      source == PhotoSourceremote.remote ? remotePath : localFile;
 
   /// Est-ce une nouvelle photo à uploader ?
-  bool get needsUpload => source == PhotoSource.local;
+  bool get needsUpload => source == PhotoSourceremote.local;
 
   /// Est-ce une photo remote ?
-  bool get isRemote => source == PhotoSource.remote;
+  bool get isRemote => source == PhotoSourceremote.remote;
 
   /// Est-ce une photo locale ?
-  bool get isLocal => source == PhotoSource.local;
+  bool get isLocal => source == PhotoSourceremote.local;
 
   /// Photo en attente de modération ?
   bool get isPending => status == 'pending';
@@ -150,7 +150,7 @@ class PhotoItem {
 
   PhotoItem copyWith({
     String? id,
-    PhotoSource? source,
+    PhotoSourceremote? source,
     String? remotePath,
     File? localFile,
     int? displayOrder,

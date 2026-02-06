@@ -1,4 +1,4 @@
-// lib/services/photo_crud_service.dart - 🔥 VERSION OPTIMISÉE SANS OBJECTBOX
+// lib/services/photo_crud_service.dart - ✅ VERSION CORRIGÉE SANS has_watermark
 // Architecture : Supabase (source de vérité) + LocalCache (vitesse) + CachedNetworkImage (images)
 
 import 'dart:io';
@@ -31,9 +31,9 @@ class PhotoCrudService {
         _imageService = imageService,
         _urlHelper = urlHelper;
 
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
   // ✅ CREATE - Ajouter une nouvelle photo
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
 
   /// 📤 Upload une photo complète
   Future<Map<String, dynamic>?> createPhoto({
@@ -41,7 +41,7 @@ class PhotoCrudService {
     required String userId,
     required String type, // 'profile' | 'gallery'
     int? displayOrder,
-    bool hasWatermark = false,
+    bool hasWatermark = false, // ⚠️ Paramètre conservé mais non utilisé en DB
   }) async {
     try {
       debugPrint('════════════════════════════════════════════════════');
@@ -51,11 +51,11 @@ class PhotoCrudService {
 
       // ✅ 1. UPLOAD FICHIER → STORAGE
       debugPrint('📦 [1/3] Uploading to Storage...');
-      
-      final photoType = type == 'profile' 
-          ? PhotoType.profile 
+
+      final photoType = type == 'profile'
+          ? PhotoType.profile
           : PhotoType.gallery;
-      
+
       final remotePath = await _imageService.uploadToStorage(
         imageFile: imageFile,
         userId: userId,
@@ -70,17 +70,17 @@ class PhotoCrudService {
 
       // ✅ 2. CRÉER MÉTADONNÉES → SUPABASE TABLE
       debugPrint('📝 [2/3] Creating metadata...');
-      
+
       final photoId = const Uuid().v4();
       final now = DateTime.now().toIso8601String();
-      
+
+      // ✅ CORRECTION : Retrait de 'has_watermark'
       final photoData = {
         'id': photoId,
         'user_id': userId,
         'remote_path': remotePath,
         'type': type,
         'status': 'pending', // Toujours en modération
-        'has_watermark': hasWatermark,
         'display_order': displayOrder ?? 0,
         'uploaded_at': now,
         'created_at': now,
@@ -92,14 +92,17 @@ class PhotoCrudService {
 
       // ✅ 3. MISE À JOUR CACHE LOCAL
       debugPrint('💾 [3/3] Updating local cache...');
-      await _localCache.addPhoto(userId, photoData);
+
+      // Ajouter has_watermark dans le cache local uniquement (pas en DB)
+      final cachedData = {...photoData, 'has_watermark': hasWatermark};
+      await _localCache.addPhoto(userId, cachedData);
       debugPrint('✅ Cache updated');
 
       debugPrint('════════════════════════════════════════════════════');
       debugPrint('✅ PHOTO CREATED SUCCESSFULLY');
       debugPrint('════════════════════════════════════════════════════');
-      
-      return photoData;
+
+      return cachedData; // Retourner avec has_watermark pour la cohérence locale
 
     } catch (e, stack) {
       debugPrint('❌ CREATE PHOTO ERROR: $e');
@@ -108,9 +111,9 @@ class PhotoCrudService {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
   // ✅ READ - Récupérer les photos
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
 
   /// 📥 Récupérer les photos d'un user avec stratégie cache-first
   Future<List<Map<String, dynamic>>> getPhotos({
@@ -127,19 +130,19 @@ class PhotoCrudService {
       if (!forceRefresh) {
         debugPrint('💾 [1/2] Checking local cache...');
         final cachedPhotos = _localCache.getUserPhotos(userId);
-        
+
         if (cachedPhotos != null && cachedPhotos.isNotEmpty) {
           debugPrint('✅ Found ${cachedPhotos.length} photos in cache');
           debugPrint('════════════════════════════════════════════════════');
           return cachedPhotos;
         }
-        
+
         debugPrint('⚠️ No cache, fetching from Supabase...');
       }
 
       // ✅ FETCH DEPUIS SUPABASE
       debugPrint('🌐 [2/2] Fetching from Supabase...');
-      
+
       final response = await _supabase
           .from('photos')
           .select()
@@ -147,37 +150,42 @@ class PhotoCrudService {
           .order('display_order', ascending: true);
 
       final photos = List<Map<String, dynamic>>.from(response);
-      
+
       debugPrint('✅ Fetched ${photos.length} photos from Supabase');
 
+      // ✅ Ajouter has_watermark par défaut (false) pour compatibilité locale
+      final photosWithWatermark = photos.map((photo) {
+        return {...photo, 'has_watermark': photo['has_watermark'] ?? false};
+      }).toList();
+
       // ✅ MISE À JOUR CACHE
-      await _localCache.saveUserPhotos(userId, photos);
+      await _localCache.saveUserPhotos(userId, photosWithWatermark);
       debugPrint('💾 Cache updated');
 
       debugPrint('════════════════════════════════════════════════════');
       debugPrint('✅ PHOTOS LOADED SUCCESSFULLY');
       debugPrint('════════════════════════════════════════════════════');
-      
-      return photos;
+
+      return photosWithWatermark;
 
     } catch (e, stack) {
       debugPrint('❌ GET PHOTOS ERROR: $e');
       debugPrint('Stack: $stack');
-      
+
       // ⚠️ FALLBACK : Essayer le cache même en cas d'erreur
       final cachedPhotos = _localCache.getUserPhotos(userId);
       if (cachedPhotos != null) {
         debugPrint('⚠️ Using cached data as fallback');
         return cachedPhotos;
       }
-      
+
       return [];
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
   // ✅ UPDATE - Modifier une photo
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
 
   /// ✏️ Mettre à jour les métadonnées d'une photo
   Future<bool> updatePhoto({
@@ -198,7 +206,7 @@ class PhotoCrudService {
       final updates = <String, dynamic>{
         'updated_at': DateTime.now().toIso8601String(),
       };
-      
+
       if (status != null) {
         updates['status'] = status;
         if (status == 'approved' || status == 'rejected') {
@@ -207,19 +215,19 @@ class PhotoCrudService {
           if (rejectionReason != null) updates['rejection_reason'] = rejectionReason;
         }
       }
-      
+
       if (displayOrder != null) {
         updates['display_order'] = displayOrder;
       }
 
       // ✅ 2. UPDATE SUPABASE
       debugPrint('📝 [1/3] Updating Supabase...');
-      
+
       await _supabase
           .from('photos')
           .update(updates)
           .eq('id', photoId);
-      
+
       debugPrint('✅ Supabase updated');
 
       // ✅ 3. UPDATE CACHE LOCAL
@@ -229,30 +237,30 @@ class PhotoCrudService {
 
       // ✅ 4. CLEAR IMAGE CACHE (pour forcer refresh)
       debugPrint('🗑️ [3/3] Clearing image cache...');
-      
+
       // Récupérer le remote_path pour invalider le cache
       final photos = _localCache.getUserPhotos(userId);
       final photo = photos?.firstWhere(
-        (p) => p['id'] == photoId,
+            (p) => p['id'] == photoId,
         orElse: () => {},
       );
-      
+
       if (photo != null && photo['remote_path'] != null) {
         final remotePath = photo['remote_path'] as String;
         await _urlHelper.evictCachedUrl(remotePath);
-        
+
         final url = _urlHelper.buildPhotoUrl(remotePath);
         if (url.isNotEmpty) {
           await CachedNetworkImage.evictFromCache(url);
         }
       }
-      
+
       debugPrint('✅ Image cache cleared');
 
       debugPrint('════════════════════════════════════════════════════');
       debugPrint('✅ PHOTO UPDATED SUCCESSFULLY');
       debugPrint('════════════════════════════════════════════════════');
-      
+
       return true;
 
     } catch (e, stack) {
@@ -262,9 +270,9 @@ class PhotoCrudService {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
   // ✅ DELETE - Supprimer une photo
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
 
   /// 🗑️ Supprimer complètement une photo
   Future<bool> deletePhoto({
@@ -279,7 +287,7 @@ class PhotoCrudService {
 
       // ✅ 0. RÉCUPÉRER LES INFOS
       debugPrint('📋 [0/4] Fetching photo info...');
-      
+
       final photoData = await _supabase
           .from('photos')
           .select('remote_path')
@@ -292,7 +300,7 @@ class PhotoCrudService {
       }
 
       final remotePath = photoData['remote_path'] as String?;
-      
+
       if (remotePath == null || remotePath.isEmpty) {
         debugPrint('⚠️ No remote_path found');
       } else {
@@ -302,11 +310,11 @@ class PhotoCrudService {
       // ✅ 1. SUPPRIMER FICHIER → STORAGE
       if (remotePath != null && remotePath.isNotEmpty) {
         debugPrint('📦 [1/4] Deleting from Storage...');
-        
+
         final storageDeleted = await _imageService.deleteFromStorage(
           path: remotePath,
         );
-        
+
         if (!storageDeleted) {
           debugPrint('⚠️ Storage deletion failed (continuing)');
         } else {
@@ -316,12 +324,12 @@ class PhotoCrudService {
 
       // ✅ 2. SUPPRIMER MÉTADONNÉES → SUPABASE TABLE
       debugPrint('📝 [2/4] Deleting from Supabase...');
-      
+
       await _supabase
           .from('photos')
           .delete()
           .eq('id', photoId);
-      
+
       debugPrint('✅ Supabase deleted');
 
       // ✅ 3. SUPPRIMER CACHE LOCAL
@@ -332,20 +340,20 @@ class PhotoCrudService {
       // ✅ 4. CLEAR IMAGE CACHE
       if (remotePath != null && remotePath.isNotEmpty) {
         debugPrint('🗑️ [4/4] Clearing image cache...');
-        
+
         await _urlHelper.evictCachedUrl(remotePath);
         final url = _urlHelper.buildPhotoUrl(remotePath);
         if (url.isNotEmpty) {
           await CachedNetworkImage.evictFromCache(url);
         }
-        
+
         debugPrint('✅ Image cache cleared');
       }
 
       debugPrint('════════════════════════════════════════════════════');
       debugPrint('✅ PHOTO DELETED SUCCESSFULLY');
       debugPrint('════════════════════════════════════════════════════');
-      
+
       return true;
 
     } catch (e, stack) {
@@ -355,9 +363,9 @@ class PhotoCrudService {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
   // 🔄 SYNC - Synchronisation
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
 
   /// 🔄 Synchroniser toutes les photos d'un user
   Future<bool> syncAllPhotos({required String userId}) async {
@@ -369,21 +377,21 @@ class PhotoCrudService {
 
       // ✅ 1. Clear tous les caches
       debugPrint('🗑️ [1/2] Clearing all caches...');
-      
+
       _urlHelper.clearCache();
       await _localCache.clearUserPhotos(userId);
-      
+
       debugPrint('✅ Caches cleared');
 
       // ✅ 2. Force refresh depuis Supabase
       debugPrint('🌐 [2/2] Force refreshing...');
       final photos = await getPhotos(userId: userId, forceRefresh: true);
-      
+
       debugPrint('════════════════════════════════════════════════════');
       debugPrint('✅ SYNC COMPLETE');
       debugPrint('   Synced: ${photos.length} photos');
       debugPrint('════════════════════════════════════════════════════');
-      
+
       return true;
 
     } catch (e, stack) {
@@ -393,9 +401,9 @@ class PhotoCrudService {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
   // 🧹 CLEANUP - Nettoyage complet
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
 
   /// 🧹 Supprimer toutes les photos d'un user (suppression de compte)
   Future<bool> deleteAllUserPhotos({required String userId}) async {
@@ -407,7 +415,7 @@ class PhotoCrudService {
 
       // Récupérer toutes les photos
       final photos = await getPhotos(userId: userId, forceRefresh: true);
-      
+
       debugPrint('📋 Found ${photos.length} photos to delete');
 
       // Supprimer chaque photo
@@ -422,7 +430,7 @@ class PhotoCrudService {
       debugPrint('✅ CLEANUP COMPLETE');
       debugPrint('   Deleted: $successCount/${photos.length}');
       debugPrint('════════════════════════════════════════════════════');
-      
+
       return successCount == photos.length;
 
     } catch (e, stack) {
@@ -432,17 +440,17 @@ class PhotoCrudService {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
   // 📊 HELPERS - Méthodes utilitaires
-  // ═══════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
 
   /// 📸 Obtenir la photo de profil d'un user
   Future<Map<String, dynamic>?> getProfilePhoto(String userId) async {
     final photos = await getPhotos(userId: userId);
-    
+
     try {
       return photos.firstWhere(
-        (p) => p['type'] == 'profile' && p['status'] == 'approved',
+            (p) => p['type'] == 'profile' && p['status'] == 'approved',
       );
     } catch (e) {
       return null;
@@ -466,7 +474,7 @@ class PhotoCrudService {
   /// 📊 Compter les photos par statut
   Future<Map<String, int>> getPhotoStats(String userId) async {
     final photos = await getPhotos(userId: userId);
-    
+
     return {
       'total': photos.length,
       'profile': photos.where((p) => p['type'] == 'profile').length,
@@ -477,7 +485,7 @@ class PhotoCrudService {
     };
   }
 
-  /// 🔍 Vérifier si un user a une photo de profil approuvée
+  /// 📝 Vérifier si un user a une photo de profil approuvée
   Future<bool> hasApprovedProfilePhoto(String userId) async {
     final profilePhoto = await getProfilePhoto(userId);
     return profilePhoto != null;
@@ -487,10 +495,10 @@ class PhotoCrudService {
   Future<String?> getProfilePhotoUrl(String userId) async {
     final photo = await getProfilePhoto(userId);
     if (photo == null) return null;
-    
+
     final remotePath = photo['remote_path'] as String?;
     if (remotePath == null || remotePath.isEmpty) return null;
-    
+
     return _urlHelper.buildPhotoUrl(remotePath);
   }
 }

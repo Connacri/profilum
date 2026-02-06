@@ -6,8 +6,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-
-import '../models/photo_item.dart';
 import '../models/social_link_model.dart';
 
 import 'photo_item.dart';

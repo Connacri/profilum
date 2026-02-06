@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../claude/photo_item.dart';
 import '../claude/service_locator.dart';
-import '../models/photo_item.dart';
+
 
 
 /// 📸 Provider pour la gestion des photos

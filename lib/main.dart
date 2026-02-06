@@ -1,24 +1,15 @@
-// lib/main.dart - ✅ VERSION COMPLÈTE MIGRÉE SANS OBJECTBOX
-
 import 'package:flutter/material.dart';
-import 'package:profilum/tami/admin_auth_provider_complete.dart';
 import 'package:provider/provider.dart';
 
+import 'app_router.dart'; // ✅ Import du router
 import 'auth/auth_screen.dart';
 import 'claude/auth_provider_optimized.dart';
-import 'claude/profile_completion_screen_example.dart';
 import 'claude/service_locator.dart';
-
 import 'providers/theme_provider.dart';
-
-import 'screens/home_screen.dart';
-
-
+import 'tami/admin_auth_provider_complete.dart';
 import 'tami/admin_documents_provider_complete.dart';
 import 'tami/document_provider_fixed.dart';
 import 'tami/guest_mode_provider.dart';
-import 'tami/ocr_provider.dart';
-import 'tami/splash_screen.dart';
 import 'widgets/auth_rate_limiter.dart';
 
 void main() async {
@@ -29,8 +20,8 @@ void main() async {
   // ═══════════════════════════════════════════════════════════════════
 
   await services.init(
-    supabaseUrl: 'https://uuosdbxqegnnwaojqxec.supabase.co',
-    supabaseAnonKey:  'sb_publishable_lv4LuXnpZBxLZMw_j-rg_Q_omNBoE5A',
+    supabaseUrl: 'https://ftaqbokfeahvfndorzuf.supabase.co',
+    supabaseAnonKey:  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0YXFib2tmZWFodmZuZG9yenVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ3NDE5MDEsImV4cCI6MjA4MDMxNzkwMX0.I_pvSiN5S8Y31XS3NV2Gw5dVrCDNjXqmUUSloycXhcw',
   );
 //   await Supabase.initialize(
 //     url: 'https://uuosdbxqegnnwaojqxec.supabase.co',
@@ -57,43 +48,37 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
 
         // ═══════════════════════════════════════════════════════════════
-        // ⏱️ Rate Limiter (optionnel)
+        // ⏱️ Rate Limiter
         // ═══════════════════════════════════════════════════════════════
         ChangeNotifierProvider(create: (_) => AuthRateLimiter()),
 
         // ═══════════════════════════════════════════════════════════════
-        // 🔐 Auth Provider - ✅ SANS ObjectBoxService
+        // 🔐 AUTH PROVIDER (PRINCIPAL)
         // ═══════════════════════════════════════════════════════════════
+        ChangeNotifierProvider(
+          create: (context) => AuthProvider(
+            services.supabase,
+            rateLimiter: context.read<AuthRateLimiter>(),
+          ),
+        ),
+
         // ═══════════════════════════════════════════════════════════════
         // 👔 ADMIN AUTH PROVIDER
         // ═══════════════════════════════════════════════════════════════
-        ChangeNotifierProvider(
-          create: (_) => AdminAuthProvider(),
-        ),
+        ChangeNotifierProvider(create: (_) => AdminAuthProvider()),
 
         // ═══════════════════════════════════════════════════════════════
-        // 👤 GUEST MODE PROVIDER (nouveau)
+        // 👤 GUEST MODE PROVIDER
         // ═══════════════════════════════════════════════════════════════
-        ChangeNotifierProvider(
-          create: (_) => GuestModeProvider(),
-        ),
+        ChangeNotifierProvider(create: (_) => GuestModeProvider()),
 
         // ═══════════════════════════════════════════════════════════════
-        // 📄 DOCUMENT PROVIDER (avec SupabaseClient)
+        // 📄 DOCUMENT PROVIDERS
         // ═══════════════════════════════════════════════════════════════
         ChangeNotifierProvider(
           create: (_) => DocumentProvider(services.supabase),
         ),
-
-        // ═══════════════════════════════════════════════════════════════
-        // 📚 ADMIN DOCUMENTS PROVIDER
-        // ═══════════════════════════════════════════════════════════════
-        ChangeNotifierProvider(
-          create: (_) => AdminDocumentsProvider(),
-        ),
-
-
-
+        ChangeNotifierProvider(create: (_) => AdminDocumentsProvider()),
       ],
       child: Consumer2<ThemeProvider, AuthProvider>(
         builder: (context, themeProvider, authProvider, _) {
@@ -104,7 +89,10 @@ class MyApp extends StatelessWidget {
             });
           }
 
-          return MaterialApp(
+          // ═══════════════════════════════════════════════════════════════
+          // ✅ ROUTING DÉCLARATIF (SOLUTION AU BUG)
+          // ═══════════════════════════════════════════════════════════════
+          return MaterialApp.router(
             title: 'Profilum',
             debugShowCheckedModeBanner: false,
 
@@ -113,50 +101,127 @@ class MyApp extends StatelessWidget {
             darkTheme: themeProvider.getDarkTheme(),
             themeMode: themeProvider.themeMode,
 
-            // ✅ Navigation selon AuthStatus
-            home: const SplashScreen(),//_buildHomeScreen(authProvider),
+            // ✅ ROUTING CONFIGURATION (Au lieu de home:)
+            routerDelegate: AppRouter(authProvider),
+            routeInformationParser: AppRouteInformationParser(),
+
+            // ✅ Builder pour gérer le chargement initial
+            builder: (context, child) {
+              // Afficher un splash pendant l'initialisation
+              if (authProvider.status == AuthStatus.initial ||
+                  authProvider.status == AuthStatus.loading) {
+                return const _LoadingSplash();
+              }
+
+              return child ?? const SizedBox.shrink();
+            },
           );
         },
       ),
     );
   }
-
-  Widget _buildHomeScreen(AuthProvider authProvider) {
-    debugPrint('🔍 Auth Status: ${authProvider.status}');
-
-    switch (authProvider.status) {
-      case AuthStatus.initial:
-      case AuthStatus.loading:
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
-
-      case AuthStatus.unauthenticated:
-      case AuthStatus.error:
-        return const AuthScreenAdvanced();
-
-      case AuthStatus.emailVerificationPending:
-        return const EmailVerificationScreen();
-
-      case AuthStatus.profileIncomplete:
-        return const ProfileCompletionScreen();
-
-      case AuthStatus.authenticated:
-        return const HomeScreen();
-
-      case AuthStatus.accountDeleted:
-      // Rediriger vers écran de confirmation
-        return const AccountDeletedScreen();
-
-      default:
-        return const AuthScreenAdvanced();
-    }
-  }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// 📧 Email Verification Screen
-// ═══════════════════════════════════════════════════════════════════
+class _LoadingSplash extends StatelessWidget {
+  const _LoadingSplash();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              theme.colorScheme.primary,
+              theme.colorScheme.secondary,
+            ],
+          ),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Logo
+              Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 30,
+                      offset: const Offset(0, 15),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    'P',
+                    style: TextStyle(
+                      fontSize: 64,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
+              // Nom de l'app
+              Text(
+                'Profilum',
+                style: theme.textTheme.headlineLarge?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              Text(
+                'Connectez-vous avec authenticité',
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: Colors.white.withOpacity(0.9),
+                ),
+              ),
+
+              const SizedBox(height: 48),
+
+              // Indicateur de chargement
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Colors.white.withOpacity(0.8),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              Text(
+                'Chargement...',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: Colors.white.withOpacity(0.7),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class EmailVerificationScreen extends StatelessWidget {
   const EmailVerificationScreen({super.key});
@@ -260,10 +325,6 @@ class EmailVerificationScreen extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// 🗑️ Account Deleted Screen
-// ═══════════════════════════════════════════════════════════════════
-
 class AccountDeletedScreen extends StatelessWidget {
   const AccountDeletedScreen({super.key});
 
@@ -278,7 +339,7 @@ class AccountDeletedScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
+              const Icon(
                 Icons.check_circle_outline,
                 size: 100,
                 color: Colors.green,
@@ -323,10 +384,5 @@ class AccountDeletedScreen extends StatelessWidget {
     );
   }
 }
-//   await Supabase.initialize(
-//     url: 'https://uuosdbxqegnnwaojqxec.supabase.co',
-//     anonKey: 'sb_publishable_lv4LuXnpZBxLZMw_j-rg_Q_omNBoE5A',
-//     realtimeClientOptions: const RealtimeClientOptions(
-//       eventsPerSecond: 10, // Limite les events pour éviter spam
-//     ),
-//   );
+
+

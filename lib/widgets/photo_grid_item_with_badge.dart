@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../claude/photo_item.dart';
-import '../models/photo_item.dart';
+
 
 class PhotoGridItem extends StatelessWidget {
   final PhotoItem photo;
@@ -35,7 +35,7 @@ class PhotoGridItem extends StatelessWidget {
           // Image
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: photo.source == PhotoSource.remote
+            child: photo.source == PhotoSourceremote.remote
                 ? _buildRemoteImage()
                 : _buildLocalImage(),
           ),
@@ -53,7 +53,7 @@ class PhotoGridItem extends StatelessWidget {
             ),
 
           // ✅ Badge "nouveau" pour photos locales
-          if (photo.source == PhotoSource.local)
+          if (photo.source == PhotoSourceremote.local)
             Positioned(
               top: 8,
               left: 8,
