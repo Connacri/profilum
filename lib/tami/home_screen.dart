@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../app_router.dart';
 import '../claude/auth_provider_optimized.dart';
 import 'app_router.dart';
 import 'document_provider_fixed.dart';

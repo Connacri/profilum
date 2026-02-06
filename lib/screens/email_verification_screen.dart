@@ -1,11 +1,10 @@
-// lib/screens/email_verification_screen.dart - ✅ ÉCRAN VALIDATION EMAIL
-
-import 'dart:async';
+// ═══════════════════════════════════════════════════════════════════
+// ✉️ ÉCRAN DE VÉRIFICATION EMAIL - OPTIMISÉ
+// ═══════════════════════════════════════════════════════════════════
 
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
-import '../services/service_locator.dart';
+import 'package:provider/provider.dart';
+import '../../claude/auth_provider_optimized.dart';
 
 class EmailVerificationScreen extends StatefulWidget {
   const EmailVerificationScreen({super.key});
@@ -15,427 +14,346 @@ class EmailVerificationScreen extends StatefulWidget {
 }
 
 class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
-  Timer? _checkTimer;
   bool _isChecking = false;
-  String? _userEmail;
+  bool _isResending = false;
 
   @override
-  void initState() {
-    super.initState();
-    _userEmail = services.supabaseService.currentUser?.email;
-    
-    // ✅ Vérifier automatiquement toutes les 5 secondes
-    _startAutoCheck();
-  }
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final authProvider = context.watch<AuthProvider>();
+    final userEmail = authProvider.currentUser?.email ?? 'votre email';
 
-  @override
-  void dispose() {
-    _checkTimer?.cancel();
-    super.dispose();
-  }
-
-  void _startAutoCheck() {
-    _checkTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      _checkEmailVerification();
-    });
-  }
-
-  Future<void> _checkEmailVerification() async {
-    if (_isChecking) return;
-
-    setState(() => _isChecking = true);
-
-    try {
-      // ✅ Rafraîchir la session pour obtenir les dernières infos
-      await services.supabaseService.client.auth.refreshSession();
-
-      final user = services.supabaseService.currentUser;
-
-      if (user == null) {
-        // User déconnecté
-        if (!mounted) return;
-        Navigator.pushReplacementNamed(context, '/login');
-        return;
-      }
-
-      // ✅ Vérifier si l'email est confirmé
-      final emailConfirmed = user.emailConfirmedAt != null;
-
-      debugPrint('📧 Email verification check:');
-      debugPrint('   - Email: ${user.email}');
-      debugPrint('   - Confirmed: $emailConfirmed');
-      debugPrint('   - ConfirmedAt: ${user.emailConfirmedAt}');
-
-      if (emailConfirmed) {
-        _checkTimer?.cancel();
-
-        if (!mounted) return;
-
-        // ✅ Email validé → Naviguer selon le rôle
-        await _navigateBasedOnRole();
-      }
-
-    } catch (e) {
-      debugPrint('❌ Error checking email verification: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isChecking = false);
-      }
-    }
-  }
-
-  Future<void> _navigateBasedOnRole() async {
-    // Import du AuthRouter
-    final route = await services.authRouter.getInitialRoute();
-
-    if (!mounted) return;
-
-    // ✅ Afficher notification de bienvenue
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle, color: Colors.white),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text('✅ Email vérifié ! Bienvenue'),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-
-    await Future.delayed(const Duration(milliseconds: 800));
-
-    if (!mounted) return;
-
-    Navigator.pushReplacementNamed(context, route);
-  }
-
-  Future<void> _resendVerificationEmail() async {
-    if (_userEmail == null) return;
-
-    try {
-      setState(() => _isChecking = true);
-
-      // ✅ Renvoyer l'email de vérification
-      await services.supabaseService.client.auth.resend(
-        type: OtpType.signup,
-        email: _userEmail!,
-      );
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
             children: [
-              const Icon(Icons.email, color: Colors.white),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text('📧 Email de vérification renvoyé'),
+              // ═══════════════════════════════════════════════════════
+              // 🎨 HEADER
+              // ═══════════════════════════════════════════════════════
+              const Spacer(),
+
+              Icon(
+                Icons.mark_email_unread_outlined,
+                size: 120,
+                color: theme.colorScheme.primary,
               ),
+
+              const SizedBox(height: 32),
+
+              Text(
+                'Vérifiez votre email',
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 16),
+
+              Text(
+                'Nous avons envoyé un lien de vérification à',
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: theme.colorScheme.onSurface.withOpacity(0.7),
+                ),
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 8),
+
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  userEmail,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.onPrimaryContainer,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
+              // ═══════════════════════════════════════════════════════
+              // 📋 INSTRUCTIONS
+              // ═══════════════════════════════════════════════════════
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          color: Colors.blue.shade700,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Que faire ensuite ?',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _buildInstructionStep(
+                      '1',
+                      'Ouvrez votre boîte email',
+                    ),
+                    _buildInstructionStep(
+                      '2',
+                      'Cliquez sur le lien de vérification',
+                    ),
+                    _buildInstructionStep(
+                      '3',
+                      'Revenez ici et cliquez sur "Vérifier"',
+                    ),
+                  ],
+                ),
+              ),
+
+              const Spacer(),
+
+              // ═══════════════════════════════════════════════════════
+              // 🔘 BOUTONS D'ACTION
+              // ═══════════════════════════════════════════════════════
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _isChecking ? null : _handleCheckVerification,
+                  icon: _isChecking
+                      ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Colors.white,
+                      ),
+                    ),
+                  )
+                      : const Icon(Icons.refresh),
+                  label: Text(
+                    _isChecking
+                        ? 'Vérification...'
+                        : 'J\'ai vérifié mon email',
+                  ),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _isResending ? null : _handleResendEmail,
+                  icon: _isResending
+                      ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        theme.colorScheme.primary,
+                      ),
+                    ),
+                  )
+                      : const Icon(Icons.send),
+                  label: Text(
+                    _isResending
+                        ? 'Envoi...'
+                        : 'Renvoyer l\'email',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
+              // ═══════════════════════════════════════════════════════
+              // 🚪 BOUTON DE DÉCONNEXION
+              // ═══════════════════════════════════════════════════════
+              TextButton.icon(
+                onPressed: _handleLogout,
+                icon: const Icon(Icons.logout, size: 20),
+                label: const Text('Se déconnecter et annuler'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.red,
+                ),
+              ),
+
+              const SizedBox(height: 16),
             ],
           ),
-          backgroundColor: Colors.blue,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
-      );
+      ),
+    );
+  }
 
-    } catch (e) {
-      debugPrint('❌ Error resending email: $e');
+  Widget _buildInstructionStep(String number, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: Colors.blue.shade700,
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                number,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: Colors.blue.shade900,
+                fontSize: 14,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-      if (!mounted) return;
+  // ═══════════════════════════════════════════════════════════════
+  // 🎬 ACTIONS
+  // ═══════════════════════════════════════════════════════════════
 
+  Future<void> _handleCheckVerification() async {
+    setState(() => _isChecking = true);
+
+    final authProvider = context.read<AuthProvider>();
+    final success = await authProvider.checkEmailVerification();
+
+    if (!mounted) return;
+
+    setState(() => _isChecking = false);
+
+    if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('❌ Erreur: $e'),
-          backgroundColor: Colors.red,
+        const SnackBar(
+          content: Text('✓ Email vérifié avec succès !'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
         ),
       );
-    } finally {
-      if (mounted) {
-        setState(() => _isChecking = false);
-      }
+      // Le router redirigera automatiquement
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Email pas encore vérifié. Vérifiez votre boîte.'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
-  Future<void> _logout() async {
+  Future<void> _handleResendEmail() async {
+    setState(() => _isResending = true);
+
+    final authProvider = context.read<AuthProvider>();
+    final success = await authProvider.resendVerificationEmail();
+
+    if (!mounted) return;
+
+    setState(() => _isResending = false);
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✓ Email de vérification renvoyé'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('❌ Erreur lors de l\'envoi'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleLogout() async {
+    // Confirmation avant déconnexion
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.logout, color: Colors.red),
-            SizedBox(width: 12),
-            Text('Se déconnecter ?'),
-          ],
-        ),
+        title: const Text('Confirmer la déconnexion'),
         content: const Text(
-          'Cela annulera votre inscription. Vous devrez vous réinscrire.',
+          'Si vous vous déconnectez maintenant, vous devrez vous '
+              'réinscrire pour accéder à l\'application.\n\n'
+              'Êtes-vous sûr de vouloir annuler votre inscription ?',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
+            child: const Text('Non, rester'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Se déconnecter'),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Oui, me déconnecter'),
           ),
         ],
       ),
     );
 
-    if (confirmed != true) return;
+    if (confirmed == true && mounted) {
+      final authProvider = context.read<AuthProvider>();
+      await authProvider.signOut();
 
-    try {
-      // ✅ Déconnexion complète
-      await services.supabaseService.client.auth.signOut();
-
-      if (!mounted) return;
-
-      Navigator.pushReplacementNamed(context, '/login');
-
-    } catch (e) {
-      debugPrint('❌ Error logging out: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Déconnecté avec succès'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-          ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // ═══════════════════════════════════════════════
-                  // 📧 ICÔNE EMAIL
-                  // ═══════════════════════════════════════════════
-                  Container(
-                    padding: const EdgeInsets.all(32),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.email_rounded,
-                        size: 80,
-                        color: Color(0xFF667EEA),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 48),
-
-                  // ═══════════════════════════════════════════════
-                  // 📝 TITRE
-                  // ═══════════════════════════════════════════════
-                  const Text(
-                    'Vérifiez votre email',
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // ═══════════════════════════════════════════════
-                  // 📧 EMAIL
-                  // ═══════════════════════════════════════════════
-                  if (_userEmail != null) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 12,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        _userEmail!,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // ═══════════════════════════════════════════════
-                  // 📄 MESSAGE
-                  // ═══════════════════════════════════════════════
-                  const Text(
-                    'Nous avons envoyé un email de vérification.\n'
-                    'Cliquez sur le lien dans l\'email pour activer votre compte.',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.white,
-                      height: 1.5,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-
-                  const SizedBox(height: 48),
-
-                  // ═══════════════════════════════════════════════
-                  // 🔄 INDICATEUR DE VÉRIFICATION
-                  // ═══════════════════════════════════════════════
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.3),
-                        width: 2,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 3,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        const Text(
-                          'Vérification automatique...',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 32),
-
-                  // ═══════════════════════════════════════════════
-                  // 🔄 BOUTON RENVOYER EMAIL
-                  // ═══════════════════════════════════════════════
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: _isChecking ? null : _resendVerificationEmail,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text(
-                        'Renvoyer l\'email',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white, width: 2),
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // ═══════════════════════════════════════════════
-                  // ❌ BOUTON DÉCONNEXION
-                  // ═══════════════════════════════════════════════
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton.icon(
-                      onPressed: _logout,
-                      icon: const Icon(Icons.logout),
-                      label: const Text(
-                        'Se déconnecter',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 32),
-
-                  // ═══════════════════════════════════════════════
-                  // 💡 INFO
-                  // ═══════════════════════════════════════════════
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          color: Colors.white.withOpacity(0.8),
-                          size: 20,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Pensez à vérifier vos spams si vous ne trouvez pas l\'email',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
