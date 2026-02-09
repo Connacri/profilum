@@ -1,324 +1,192 @@
 // ═══════════════════════════════════════════════════════════════════
-// 🛣️ APP ROUTER OPTIMISÉ - GESTION INTELLIGENTE DES RÔLES
+// 🛣️ APP ROUTER COMPLET - TOUTES LES ROUTES
 // ═══════════════════════════════════════════════════════════════════
 
 import 'package:flutter/material.dart';
 
-import '../../tami/admin_auth_provider_complete.dart';
-import 'claude/auth_provider_optimized.dart';
-import 'screens/email_verification_screen.dart';
-
 // ═══════════════════════════════════════════════════════════════════
-// 📋 ROUTES CENTRALISÉES
+// 📋 DÉFINITION DES ROUTES
 // ═══════════════════════════════════════════════════════════════════
 
 class AppRoutes {
-  // Public
+  // ═══════════════════════════════════════════════════════════════
+  // ROUTES PUBLIQUES
+  // ═══════════════════════════════════════════════════════════════
   static const String splash = '/';
   static const String welcome = '/welcome';
 
-  // Auth commune
-  static const String emailVerification = '/email-verification';
-
-  // User
+  // ═══════════════════════════════════════════════════════════════
+  // ROUTES USER
+  // ═══════════════════════════════════════════════════════════════
   static const String userAuth = '/auth';
   static const String userHome = '/home';
+  static const String emailVerification = '/email-verification';
+  static const String profileCompletion = '/profile-completion';
+  static const String accountDeleted = '/account-deleted';
 
-  // Admin
+  // ═══════════════════════════════════════════════════════════════
+  // ROUTES ADMIN
+  // ═══════════════════════════════════════════════════════════════
   static const String adminLogin = '/admin/login';
   static const String adminDashboard = '/admin/dashboard';
+  static const String adminDocuments = '/admin/documents';
+  static const String adminUsers = '/admin/users';
+  static const String adminStats = '/admin/stats';
 
-  // Moderator (futur)
+  // ═══════════════════════════════════════════════════════════════
+  // ROUTES MODERATOR (FUTUR)
+  // ═══════════════════════════════════════════════════════════════
   static const String moderatorLogin = '/moderator/login';
   static const String moderatorDashboard = '/moderator/dashboard';
+
+  // ═══════════════════════════════════════════════════════════════
+  // 🔍 HELPERS DE DÉTECTION
+  // ═══════════════════════════════════════════════════════════════
+
+  /// Vérifie si une route est une route admin
+  static bool isAdminRoute(String? route) {
+    if (route == null) return false;
+    return route.startsWith('/admin');
+  }
+
+  /// Vérifie si une route est une route moderator
+  static bool isModeratorRoute(String? route) {
+    if (route == null) return false;
+    return route.startsWith('/moderator');
+  }
+
+  /// Vérifie si une route nécessite une authentification
+  static bool requiresAuth(String? route) {
+    if (route == null) return false;
+
+    final publicRoutes = [
+      splash,
+      welcome,
+      userAuth,
+      adminLogin,
+      moderatorLogin,
+    ];
+
+    return !publicRoutes.contains(route);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// 🛡️ ROUTER DELEGATE PRINCIPAL
+// 🧭 NAVIGATION HELPERS
 // ═══════════════════════════════════════════════════════════════════
 
-class AppRouterDelegate extends RouterDelegate<AppRoutePath>
-    with ChangeNotifier, PopNavigatorRouterDelegateMixin<AppRoutePath> {
+class NavigationHelpers {
+  // ═══════════════════════════════════════════════════════════════
+  // NAVIGATION USER
+  // ═══════════════════════════════════════════════════════════════
 
-  @override
-  final GlobalKey<NavigatorState> navigatorKey;
-
-  final AuthProvider authProvider;
-  final AdminAuthProvider adminAuthProvider;
-
-  AppRouterDelegate({
-    required this.authProvider,
-    required this.adminAuthProvider,
-  }) : navigatorKey = GlobalKey<NavigatorState>() {
-    authProvider.addListener(notifyListeners);
-    adminAuthProvider.addListener(notifyListeners);
+  /// Naviguer vers la page d'accueil
+  static void navigateToHome(BuildContext context) {
+    Navigator.pushReplacementNamed(context, AppRoutes.userHome);
   }
 
-  @override
-  AppRoutePath get currentConfiguration {
-    // Retourner la route actuelle pour deep linking
-    return AppRoutePath.home();
+  /// Naviguer vers l'authentification
+  static void navigateToAuth(BuildContext context) {
+    Navigator.pushNamed(context, AppRoutes.userAuth);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Navigator(
-      key: navigatorKey,
-      pages: _buildPages(),
-      onPopPage: (route, result) {
-        if (!route.didPop(result)) return false;
-        notifyListeners();
-        return true;
-      },
+  /// Naviguer vers la vérification email
+  static void navigateToEmailVerification(BuildContext context) {
+    Navigator.pushReplacementNamed(context, AppRoutes.emailVerification);
+  }
+
+  /// Naviguer vers la complétion de profil
+  static void navigateToProfileCompletion(BuildContext context) {
+    Navigator.pushReplacementNamed(context, AppRoutes.profileCompletion);
+  }
+
+  /// Naviguer vers welcome et clear stack
+  static void navigateToWelcome(BuildContext context) {
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      AppRoutes.welcome,
+          (route) => false,
     );
-  }
-
-  List<Page> _buildPages() {
-    // ═══════════════════════════════════════════════════════════════
-    // 🔍 DÉTECTION DU RÔLE ET DE L'ÉTAT
-    // ═══════════════════════════════════════════════════════════════
-
-    // 1. Loading initial
-    if (authProvider.status == AuthStatus.initial) {
-      return [_buildSplashPage()];
-    }
-
-    // 2. Admin authentifié
-    if (adminAuthProvider.isAuthenticated) {
-      return _buildAdminPages();
-    }
-
-    // 3. User authentifié
-    if (authProvider.status == AuthStatus.authenticated) {
-      return _buildUserPages();
-    }
-
-    // 4. Email non vérifié
-    if (authProvider.status == AuthStatus.emailVerificationPending) {
-      return [_buildEmailVerificationPage()];
-    }
-
-    // 5. Profil incomplet
-    if (authProvider.status == AuthStatus.profileIncomplete) {
-      return [_buildProfileCompletionPage()];
-    }
-
-    // 6. Non authentifié (default)
-    return [_buildWelcomePage()];
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // 📄 CONSTRUCTION DES PAGES
+  // NAVIGATION ADMIN
   // ═══════════════════════════════════════════════════════════════
 
-  MaterialPage _buildSplashPage() {
-    return const MaterialPage(
-      key: ValueKey('SplashPage'),
-      child: SplashScreen(),
+  /// Naviguer vers login admin
+  static void navigateToAdminLogin(BuildContext context) {
+    Navigator.pushReplacementNamed(context, AppRoutes.adminLogin);
+  }
+
+  /// Naviguer vers dashboard admin
+  static void navigateToAdminDashboard(BuildContext context) {
+    Navigator.pushReplacementNamed(context, AppRoutes.adminDashboard);
+  }
+
+  /// Naviguer vers documents admin
+  static void navigateToAdminDocuments(BuildContext context) {
+    Navigator.pushNamed(context, AppRoutes.adminDocuments);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // DÉCONNEXION
+  // ═══════════════════════════════════════════════════════════════
+
+  /// Déconnexion complète (retour splash)
+  static void logout(BuildContext context) {
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      AppRoutes.splash,
+          (route) => false,
     );
   }
 
-  MaterialPage _buildWelcomePage() {
-    return const MaterialPage(
-      key: ValueKey('WelcomePage'),
-      child: WelcomeHomeScreen(),
-    );
-  }
+  // ═══════════════════════════════════════════════════════════════
+  // DIALOGS
+  // ═══════════════════════════════════════════════════════════════
 
-  MaterialPage _buildEmailVerificationPage() {
-    return const MaterialPage(
-      key: ValueKey('EmailVerificationPage'),
-      child: EmailVerificationScreen(),
-    );
-  }
-
-  MaterialPage _buildProfileCompletionPage() {
-    return const MaterialPage(
-      key: ValueKey('ProfileCompletionPage'),
-      child: ProfileCompletionScreen(),
-    );
-  }
-
-  List<Page> _buildUserPages() {
-    return [
-      const MaterialPage(
-        key: ValueKey('UserHomePage'),
-        child: HomeScreen(),
+  /// Afficher une confirmation de déconnexion
+  static Future<bool> showLogoutConfirmation(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirmer la déconnexion'),
+        content: const Text('Voulez-vous vraiment vous déconnecter ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Déconnexion'),
+          ),
+        ],
       ),
-    ];
+    );
+
+    return confirmed ?? false;
   }
 
-  List<Page> _buildAdminPages() {
-    return [
-      const MaterialPage(
-        key: ValueKey('AdminDashboardPage'),
-        child: AdminDashboardScreen(),
-      ),
-    ];
-  }
-
-  @override
-  Future<void> setNewRoutePath(AppRoutePath configuration) async {
-    // Gérer les deep links
-  }
-
-  @override
-  void dispose() {
-    authProvider.removeListener(notifyListeners);
-    adminAuthProvider.removeListener(notifyListeners);
-    super.dispose();
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// 🧭 ROUTE INFORMATION PARSER
-// ═══════════════════════════════════════════════════════════════════
-
-class AppRouteInformationParser extends RouteInformationParser<AppRoutePath> {
-  @override
-  Future<AppRoutePath> parseRouteInformation(
-      RouteInformation routeInformation,
-      ) async {
-    final uri = Uri.parse(routeInformation.location ?? '/');
-
-    // Admin routes
-    if (uri.pathSegments.isNotEmpty && uri.pathSegments.first == 'admin') {
-      if (uri.pathSegments.length > 1) {
-        if (uri.pathSegments[1] == 'dashboard') {
-          return AppRoutePath.adminDashboard();
-        }
-      }
-      return AppRoutePath.adminLogin();
-    }
-
-    // User routes
-    if (uri.pathSegments.isEmpty) {
-      return AppRoutePath.home();
-    }
-
-    return AppRoutePath.unknown();
-  }
-
-  @override
-  RouteInformation? restoreRouteInformation(AppRoutePath configuration) {
-    if (configuration.isUnknown) {
-      return const RouteInformation(location: '/404');
-    }
-    if (configuration.isAdminDashboard) {
-      return const RouteInformation(location: '/admin/dashboard');
-    }
-    if (configuration.isAdminLogin) {
-      return const RouteInformation(location: '/admin/login');
-    }
-    return const RouteInformation(location: '/');
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// 🗺️ ROUTE PATH CONFIGURATION
-// ═══════════════════════════════════════════════════════════════════
-
-class AppRoutePath {
-  final bool isUnknown;
-  final bool isAdminLogin;
-  final bool isAdminDashboard;
-
-  AppRoutePath.home()
-      : isUnknown = false,
-        isAdminLogin = false,
-        isAdminDashboard = false;
-
-  AppRoutePath.adminLogin()
-      : isUnknown = false,
-        isAdminLogin = true,
-        isAdminDashboard = false;
-
-  AppRoutePath.adminDashboard()
-      : isUnknown = false,
-        isAdminLogin = false,
-        isAdminDashboard = true;
-
-  AppRoutePath.unknown()
-      : isUnknown = true,
-        isAdminLogin = false,
-        isAdminDashboard = false;
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// 📱 PLACEHOLDERS SCREENS (À REMPLACER)
-// ═══════════════════════════════════════════════════════════════════
-
-class SplashScreen extends StatelessWidget {
-  const SplashScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: CircularProgressIndicator(),
+  /// Afficher un message d'erreur
+  static void showError(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
-}
 
-class WelcomeHomeScreen extends StatelessWidget {
-  const WelcomeHomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('Welcome'),
-            ElevatedButton(
-              onPressed: () {
-                // Navigate to auth
-              },
-              child: const Text('Login'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class ProfileCompletionScreen extends StatelessWidget {
-  const ProfileCompletionScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Text('Complete your profile'),
-      ),
-    );
-  }
-}
-
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Text('Home'),
-      ),
-    );
-  }
-}
-
-class AdminDashboardScreen extends StatelessWidget {
-  const AdminDashboardScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Text('Admin Dashboard'),
+  /// Afficher un message de succès
+  static void showSuccess(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
